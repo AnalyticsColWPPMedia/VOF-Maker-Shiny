@@ -1,0 +1,174 @@
+/* =======================================================*/
+/* 1. Global Application Header                           */
+/* =======================================================*/
+
+.app-header {
+  /* WPP Style Gradient Background (Blue) */
+  background: linear-gradient(90deg, #5dade2 0%, #2980b9 100%) !important;
+  color: white !important;
+  
+  border-bottom: none;
+  padding: 15px 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.app-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: white !important;
+  margin: 0;
+  letter-spacing: 1px;
+}
+
+.app-subtitle {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9) !important;
+  margin-top: 4px;
+  font-weight: 400;
+  text-align: center;
+  display: inline-block;
+}
+
+/* Header Alignment Helpers */
+.header-left, .header-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.header-right {
+  justify-content: flex-end;
+}
+
+.header-center {
+  flex: 2;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* =======================================================*/
+/* 2. General Styles & BUTTONS                            */
+/* =======================================================*/
+
+body {
+  background-color: #f4f6f9 !important;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #333;
+}
+
+.section-card {
+  background-color: #ffffff !important;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #3498db;
+}
+
+/* ESTILO DEL BOTÓN ADD VARIABLE (Azul Claro tipo Pantallazo) */
+.btn-add-var {
+  background-color: #5dade2 !important; /* El azul del screenshot */
+  border-color: #5dade2 !important;
+  color: white !important;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 6px 12px;
+}
+
+.btn-add-var:hover {
+  background-color: #4a90e2 !important;
+  border-color: #4a90e2 !important;
+}
+
+/* ESTILO DEL BOTÓN GENERATE (Azul más oscuro) */
+.custom-download-btn {
+  background-color: #34495e !important; 
+  border-color: #34495e !important;
+  color: white !important;
+  font-weight: 600;
+}
+
+.custom-download-btn:hover {
+  background-color: #2c3e50 !important;
+}
+
+/* ESTILO DELETE BUTTON */
+.btn-danger {
+  background-color: #e74c3c !important;
+  border-color: #e74c3c !important;
+}
+
+.btn-unified, .btn-file, .custom-download-btn, .btn-add-var {
+    background-color: #4483BA !important; 
+    border-color: #4483BA !important; 
+    color: white !important; 
+    font-weight: 600;
+}
+
+.btn-unified:hover, .btn-file:hover, .custom-download-btn:hover, .btn-add-var:hover {
+    background-color: #366a96 !important; 
+    border-color: #366a96 !important;
+}
+
+.btn-danger-custom { 
+    background-color: #e74c3c !important; 
+    border-color: #e74c3c !important; 
+    color: white !important; 
+    font-weight: 600; 
+}
+
+.btn-success-custom { 
+    background-color: #27ae60 !important; 
+    border-color: #27ae60 !important; 
+    color: white !important; 
+    font-weight: 600; 
+}
+
+.btn-warning-custom { 
+    background-color: #f39c12 !important; 
+    border-color: #f39c12 !important; 
+    color: white !important; 
+    font-weight: 600; 
+}
+
+.history-box { 
+    background-color: #d6eaf8; 
+    border: 1px solid #a9cce3; 
+    color: #2980b9; 
+    padding: 10px; 
+    border-radius: 5px; 
+    margin-top: 10px; 
+    font-weight: 600; 
+    text-align: center; 
+}
+
+/* ------------------------------------
+   SECTION: Upload zone
+--------------------------------------- */
+.upload-zone {
+  border: 2px dashed #bdc3c7;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  background: #f8f9fa;
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+.upload-zone:hover {
+  border-color: #3498db;
+  background: #f1f6f9;
+}

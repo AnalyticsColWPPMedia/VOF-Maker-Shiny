@@ -1,0 +1,12 @@
+name: VOF_Maker
+title: VOF_Maker
+username: analyticscolombia
+account: analyticscolombia
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 16725525
+bundleId: 12283823
+url: https://analyticscolombia.shinyapps.io/VOF_Maker/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
