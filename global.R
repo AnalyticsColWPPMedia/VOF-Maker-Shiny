@@ -10,6 +10,7 @@ library(readxl)
 library(glue)
 library(shinyjs)
 library(jsonlite)
+library(shinyWidgets)
 
 # 2. Cargar Funciones y Módulos
 source("R/core/utils.R")

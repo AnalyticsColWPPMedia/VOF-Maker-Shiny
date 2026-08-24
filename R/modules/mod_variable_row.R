@@ -11,9 +11,20 @@ variableRowUI <- function(id, initial_state = list(sub=FALSE, effect=FALSE, peri
     if(!is.null(values) && !is.null(values[[key]])) values[[key]] else default
   }
   
+  # --- FUNCIÓN CORREGIDA ---
   get_date <- function(key) {
     val <- get_val(key, NA)
-    if(is.na(val) || val == "NA" || val == "") NA else val
+    
+    # 1. Chequeo seguro contra NULL o elementos vacíos
+    if (is.null(val) || length(val) == 0) return(NA)
+    
+    # 2. Chequeo seguro contra NA lógico o Date NA
+    if (isTRUE(is.na(val))) return(NA)
+    
+    # 3. Solo si es caracter, evaluamos contra textos vacíos
+    if (is.character(val) && (val == "NA" || val == "")) return(NA)
+    
+    return(val)
   }
   
   tags$div(
@@ -22,8 +33,9 @@ variableRowUI <- function(id, initial_state = list(sub=FALSE, effect=FALSE, peri
     style = "border: 1px solid #e0e0e0; padding: 15px; margin-bottom: 15px; border-radius: 8px; background-color: white;",
     
     fluidRow(
-      column(11, uiOutput(ns("analytical_var_ui"))),
-      column(1, actionButton(ns("remove_btn"), "", icon = icon("trash"), class = "btn-danger", style = "margin-top: 25px; width: 100%;"))
+      column(10, uiOutput(ns("analytical_var_ui"))),
+      column(1, actionButton(ns("clear_filters_btn"), "", icon = icon("eraser"), class = "btn-warning", style = "margin-top: 25px; width: 100%;", title = "Clear Date & CS Filters")),
+      column(1, actionButton(ns("remove_btn"), "", icon = icon("trash"), class = "btn-danger", style = "margin-top: 25px; width: 100%;", title = "Remove Row"))
     ),
     
     fluidRow(
@@ -37,6 +49,8 @@ variableRowUI <- function(id, initial_state = list(sub=FALSE, effect=FALSE, peri
     init_vis(tags$div(id = ns("wrap_cs"), uiOutput(ns("cs_ui"))), initial_state$cs)
   )
 }
+
+
 
 variableRowServer <- function(id, analytical_cols, global_settings, cs_detect, analytical_data, restore_data = NULL) {
   moduleServer(id, function(input, output, session) {
@@ -70,7 +84,6 @@ variableRowServer <- function(id, analytical_cols, global_settings, cs_detect, a
       for(cs in possible_cs){
         if(cs %in% cols_avail){
           input_id <- paste0("cs_", tolower(cs))
-          # CAMBIO: Label limpio, solo el nombre de la dimensión
           label <- cs 
           choice_values <- if(!is.null(df_data)) sort(unique(df_data[[cs]])) else NULL
           
@@ -80,10 +93,32 @@ variableRowServer <- function(id, analytical_cols, global_settings, cs_detect, a
             if(!is.null(restore_data[[key]])) sel_vals <- restore_data[[key]]
           }
           
-          ui_elems[[length(ui_elems) + 1]] <- column(2, selectizeInput(ns(input_id), label, choices = choice_values, selected = sel_vals, multiple = TRUE, options = list(create = FALSE)))
+          ui_elems[[length(ui_elems) + 1]] <- column(2, shinyWidgets::pickerInput(
+            inputId = ns(input_id),
+            label = label,
+            choices = choice_values,
+            selected = sel_vals,
+            multiple = TRUE,
+            options = list(`actions-box` = TRUE, `live-search` = TRUE, `selected-text-format` = "count > 2", `size` = 10),
+            width = "100%"
+          ))
         }
       }
       do.call(fluidRow, ui_elems)
+    })
+    
+    # --- EVENTO PARA LIMPIAR FILTROS RÁPIDAMENTE ---
+    observeEvent(input$clear_filters_btn, {
+      updateDateInput(session, "start_period", value = NA)
+      updateDateInput(session, "end_period", value = NA)
+      
+      cols_avail <- cs_detect()
+      possible_cs <- c("Geography", "Product", "Campaign", "Outlet", "Creative")
+      for(cs in possible_cs){
+        if(cs %in% cols_avail){
+          shinyWidgets::updatePickerInput(session, paste0("cs_", tolower(cs)), selected = character(0))
+        }
+      }
     })
     
     return(list(

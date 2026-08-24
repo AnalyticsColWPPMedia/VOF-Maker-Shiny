@@ -26,24 +26,32 @@ helper_period_vof_name <- function(date_var){
 
 find_pair_variable <- function(activity_var, all_vars) {
   if (is.null(all_vars) || length(all_vars) == 0) return(NULL)
-    
-  act_keywords <- c("Impressions", "Clicks", "GRPs", "Views",
-                    "Reach", "Actions", "Visits", "Circulation", 
-                    "Attendance", "Engagements", "Sessions", "Engagement")
   
+  act_keywords <- c("Impressions", "Clicks", "GRPs", "Views", "Sessions", "Reach", "Actions", "Visits", "Circulation")
   spend_keywords <- c("Spend", "Cost", "Net Cost", "Gross Cost")
+  
+  # Creamos una versión en minúsculas de todas las variables para hacer el match sin importar el case
+  all_vars_lower <- tolower(all_vars)
   
   for (act in act_keywords) {
     if (grepl(act, activity_var, ignore.case = TRUE)) {
       for (sp in spend_keywords) {
+        
+        # 1. Hacemos el reemplazo de la palabra (ignore.case funciona aquí)
         candidate <- sub(act, sp, activity_var, ignore.case = TRUE)
-        if (candidate %in% all_vars) return(candidate)
+        
+        # 2. Buscamos el candidato en minúscula dentro de nuestra lista en minúscula
+        match_idx <- which(all_vars_lower == tolower(candidate))
+        
+        # 3. Si hay match, retornamos la variable con su formato ORIGINAL (respetando sus mayúsculas reales)
+        if (length(match_idx) > 0) {
+          return(all_vars[match_idx[1]])
+        }
       }
     }
   }
   return(NULL)
 }
-
 # ==============================================================================
 # 2. LÓGICA DE INTERSECCIÓN & NOMBRES
 # ==============================================================================

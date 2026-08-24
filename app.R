@@ -159,6 +159,39 @@ ui <- fluidPage(
                                tags$hr(),
                                textAreaInput("kpi_code_area", NULL, value = "", rows = 12, width = "100%", resize = "vertical")
                            )
+                  ),
+                  
+                  # === PESTAÑA 3: EXTERNAL SOURCES ===
+                  tabPanel("External Sources",
+                           tags$br(),
+                           div(class = "section-card", h4("External Data Upload & Mapping", class = "card-title"),
+                               fluidRow(
+                                 column(3, fileInput("ext_file", "Upload Data (CSV/XLSX)", accept = c(".csv", ".xlsx", ".xls"))),
+                                 column(3, textInput("ext_var_name", "Variable Name", placeholder = "e.g., Google_Trends")),
+                                 column(2, selectInput("ext_period_col", "Period Column", choices = NULL)),
+                                 column(2, selectInput("ext_val_col", "Value Column", choices = NULL))
+                               ),
+                               fluidRow(
+                                 column(6),
+                                 column(3, selectInput("ext_cs_col", "External Entity Column (Optional)", choices = c("None" = ""))),
+                                 column(3, uiOutput("ext_cs_target_ui"))
+                               )
+                           ),
+                           div(class = "section-card", h4("Metadata", class = "card-title"),
+                               fluidRow(
+                                 column(4, textInput("ext_source", "Source (URL, platform, etc.)", width = "100%")),
+                                 column(4, textInput("ext_notes", "Specific notes", width = "100%")),
+                                 column(4, textInput("ext_why", "Why use VOF?", width = "100%"))
+                               )
+                           ),
+                           div(class = "section-card", h4("Diagnosis & Settings", class = "card-title"),
+                               uiOutput("ext_diagnosis_ui")
+                           ),
+                           div(class = "section-card", h4("Actions & Output", class = "card-title"),
+                               actionButton("generate_ext_btn", "Generate VOF", class = "btn btn-primary", style = "width: 250px;"),
+                               tags$hr(),
+                               textAreaInput("ext_code_area", "Generated Code", value = "", rows = 12, width = "100%", resize = "vertical")
+                           )
                   )
       )
   )
@@ -577,15 +610,39 @@ server <- function(input, output, session) {
   
   observeEvent(input$add_variable_btn, {
     if(is.null(input$file_analytical)) { showNotification("Upload data first", type = "warning"); return() }
+    
+    # --- LÓGICA DE HERENCIA: Extraer filtros del componente anterior ---
+    curr_mods <- modules_list()
+    inherit_values <- NULL
+    
+    if (length(curr_mods) > 0) {
+      last_mod_id <- names(curr_mods)[length(curr_mods)]
+      last_data <- curr_mods[[last_mod_id]]$get_data()
+      
+      inherit_values <- list(
+        start_period = last_data$start_period,
+        end_period   = last_data$end_period,
+        cs_geography = last_data$cs_geography,
+        cs_product   = last_data$cs_product,
+        cs_campaign  = last_data$cs_campaign,
+        cs_outlet    = last_data$cs_outlet,
+        cs_creative  = last_data$cs_creative
+      )
+    }
+    
     counter(counter() + 1)
     new_id <- paste0("var_mod_", counter())
     current_state <- list(sub = isTRUE(input$show_sub_channel), effect = isTRUE(input$show_effect), period = isTRUE(input$show_period), cs = isTRUE(input$show_cs))
-    insertUI(selector = "#modules_container", where = "beforeEnd", ui = variableRowUI(new_id, initial_state = current_state))
-    mod_instance <- variableRowServer(new_id, analytical_cols, global_settings, cs_detect, analytical_data)
+    
+    # Inyectar los valores heredados tanto en la UI como en el Server
+    insertUI(selector = "#modules_container", where = "beforeEnd", ui = variableRowUI(new_id, initial_state = current_state, values = inherit_values))
+    mod_instance <- variableRowServer(new_id, analytical_cols, global_settings, cs_detect, analytical_data, restore_data = inherit_values)
+    
     current <- modules_list()
     current[[new_id]] <- mod_instance
     modules_list(current)
   })
+  
   
   observe({
     current_mods <- modules_list()
@@ -807,6 +864,192 @@ server <- function(input, output, session) {
       write.csv(final_data, file, row.names = FALSE)
     }
   )
+  
+  # === EXTERNAL SOURCES LOGIC ===
+  
+  ext_data <- reactive({
+    req(input$ext_file)
+    ext <- tools::file_ext(input$ext_file$name)
+    tryCatch({
+      if(ext == "csv") {
+        read.csv(input$ext_file$datapath, stringsAsFactors = FALSE)
+      } else {
+        as.data.frame(readxl::read_excel(input$ext_file$datapath))
+      }
+    }, error = function(e) {
+      showNotification(paste("Error reading external file:", e$message), type = "error")
+      NULL
+    })
+  })
+  
+  observeEvent(ext_data(), {
+    req(ext_data())
+    cols <- colnames(ext_data())
+    updateSelectInput(session, "ext_period_col", choices = c("", cols))
+    updateSelectInput(session, "ext_val_col", choices = c("", cols))
+    updateSelectInput(session, "ext_cs_col", choices = c("None" = "", cols))
+  })
+  
+  output$ext_cs_target_ui <- renderUI({
+    req(input$ext_cs_col, input$ext_cs_col != "")
+    active_cs <- cs_detect()
+    selectInput("ext_cs_target", "Target Analytical Entity", choices = c("", active_cs))
+  })
+  
+  output$ext_diagnosis_ui <- renderUI({
+    req(ext_data(), input$ext_period_col, input$ext_val_col, analytical_data())
+    
+    df_ext <- ext_data()
+    df_ana <- analytical_data()
+    
+    if(!("Period" %in% names(df_ana))) {
+      return(tags$div(class = "alert alert-danger", "Analytical Dataset missing 'Period' column."))
+    }
+    
+    ext_dates <- suppressWarnings(as.Date(as.character(df_ext[[input$ext_period_col]]), tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d")))
+    ana_dates <- sort(unique(as.Date(df_ana$Period)))
+    ana_dates <- ana_dates[!is.na(ana_dates)]
+    
+    if(all(is.na(ext_dates))) {
+      shinyjs::disable("generate_ext_btn")
+      return(tags$div(class = "alert alert-danger", "Could not parse dates in the selected Period Column. Ensure they are in a standard format (e.g., YYYY-MM-DD)."))
+    }
+    
+    ext_dates_clean <- ext_dates[!is.na(ext_dates)]
+    matched_dates <- sum(ext_dates_clean %in% ana_dates)
+    match_pct <- round((matched_dates / length(ext_dates_clean)) * 100, 1)
+    
+    msg_date <- tags$p(glue::glue("Date alignment: {match_pct}% of external dates match directly with analytical dates."))
+    
+    agg_ui <- NULL
+    if(match_pct < 100 || length(unique(ext_dates_clean)) > length(ana_dates)) {
+      msg_date <- tagList(msg_date, tags$p("Temporal misalignment or frequency mismatch detected. The app will align external dates to the nearest analytical date.", style="color: #e67e22; font-weight: bold;"))
+      agg_ui <- radioButtons("ext_agg_method", "Select Temporal Aggregation Method:", choices = c("Sum" = "sum", "Mean" = "mean"), inline = TRUE)
+    }
+    
+    cs_ui_msg <- NULL
+    cs_ok <- TRUE
+    
+    if(input$ext_cs_col != "") {
+      if(is.null(input$ext_cs_target) || input$ext_cs_target == "") {
+        cs_ok <- FALSE
+        cs_ui_msg <- tags$div(class = "alert alert-warning", "Please select a Target Analytical Entity for mapping.")
+      } else {
+        ext_cs_vals <- unique(trimws(as.character(df_ext[[input$ext_cs_col]])))
+        ana_cs_vals <- unique(trimws(as.character(df_ana[[input$ext_cs_target]])))
+        
+        missing_in_ana <- setdiff(ext_cs_vals, ana_cs_vals)
+        if(length(missing_in_ana) > 0) {
+          cs_ok <- FALSE
+          cs_ui_msg <- tags$div(class = "alert alert-danger",
+                                tags$strong("Cross-Sectional Mismatch!"),
+                                tags$p(glue::glue("The following entities exist in '{input$ext_cs_col}' but NOT in '{input$ext_cs_target}'. Code generation is blocked until this is fixed:")),
+                                tags$ul(style = "max-height: 150px; overflow-y: auto;", lapply(missing_in_ana, tags$li))
+          )
+        } else {
+          cs_ui_msg <- tags$div(class = "alert alert-success", "Cross-Sectional entities mapped perfectly!")
+        }
+      }
+    }
+    
+    if(cs_ok) {
+      shinyjs::enable("generate_ext_btn")
+    } else {
+      shinyjs::disable("generate_ext_btn")
+    }
+    
+    tagList(
+      tags$div(class = "alert alert-info", msg_date),
+      agg_ui,
+      cs_ui_msg
+    )
+  })
+  
+  observeEvent(input$generate_ext_btn, {
+    req(input$ext_var_name, input$ext_period_col, input$ext_val_col)
+    
+    df_ext <- ext_data()
+    df_ana <- analytical_data()
+    
+    ext_dates <- suppressWarnings(as.Date(as.character(df_ext[[input$ext_period_col]]), tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d")))
+    ana_dates <- sort(unique(as.Date(df_ana$Period)))
+    ana_dates <- ana_dates[!is.na(ana_dates)]
+    
+    mapped_dates <- sapply(ext_dates, function(d) {
+      if(is.na(d)) return(NA)
+      ana_dates[which.min(abs(ana_dates - d))]
+    })
+    
+    tmp <- data.frame(
+      MappedDate = as.Date(mapped_dates, origin = "1970-01-01"),
+      Value = as.numeric(df_ext[[input$ext_val_col]])
+    )
+    
+    has_cs <- input$ext_cs_col != "" && !is.null(input$ext_cs_target) && input$ext_cs_target != ""
+    if(has_cs) {
+      tmp$Entity <- trimws(as.character(df_ext[[input$ext_cs_col]]))
+    }
+    
+    tmp <- tmp[!is.na(tmp$MappedDate) & !is.na(tmp$Value), ]
+    
+    agg_func <- if(!is.null(input$ext_agg_method) && input$ext_agg_method == "mean") mean else sum
+    
+    if(has_cs) {
+      agg_df <- aggregate(Value ~ MappedDate + Entity, data = tmp, FUN = agg_func)
+    } else {
+      agg_df <- aggregate(Value ~ MappedDate, data = tmp, FUN = agg_func)
+    }
+    
+    if(has_cs) agg_df <- agg_df[order(agg_df$Entity, agg_df$MappedDate), ]
+    else agg_df <- agg_df[order(agg_df$MappedDate), ]
+    
+    date_str <- paste(sprintf("'%s'", agg_df$MappedDate), collapse=", ")
+    val_str <- paste(round(agg_df$Value, 4), collapse=", ")
+    
+    if(has_cs) {
+      ent_str <- paste(sprintf("'%s'", agg_df$Entity), collapse=", ")
+      df_code <- glue::glue("tmp_ext <- data.frame(
+  Period = as.Date(c({date_str})),
+  Entity = c({ent_str}),
+  Value = c({val_str})
+)")
+      
+      match_code <- glue::glue("
+# 2. Create composite keys for exact mapping
+key_data <- paste(Data$Period, Data$`{input$ext_cs_target}`, sep = '_')
+key_ext <- paste(tmp_ext$Period, tmp_ext$Entity, sep = '_')
+
+# 3. Map values directly using composite keys (match is safe and idempotent)
+Data$`{input$ext_var_name}` <- tmp_ext$Value[match(key_data, key_ext)]
+")
+    } else {
+      df_code <- glue::glue("tmp_ext <- data.frame(
+  Period = as.Date(c({date_str})),
+  Value = c({val_str})
+)")
+      
+      match_code <- glue::glue("
+# 2. Map values directly using match to avoid merge conflicts (.x/.y)
+Data$`{input$ext_var_name}` <- tmp_ext$Value[match(Data$Period, tmp_ext$Period)]
+")
+    }
+    
+    final_code <- glue::glue("
+#### External Variable: {input$ext_var_name} ####
+# Source: {input$ext_source}
+# Notes: {input$ext_notes}
+# Why: {input$ext_why}
+
+# 1. External data (Aggregated internally)
+{df_code}
+{match_code}
+# Replace NAs with 0
+Data$`{input$ext_var_name}`[is.na(Data$`{input$ext_var_name}`)] <- 0
+")
+    
+    updateTextAreaInput(session, "ext_code_area", value = final_code)
+    showNotification("External Data Code generated successfully!", type = "message")
+  })
 }
 
 shinyApp(ui, server)
