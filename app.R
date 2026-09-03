@@ -669,7 +669,7 @@ server <- function(input, output, session) {
 Data$`{log_var_name}` = 0
 Data$`{log_var_name}` = ifelse(Data$`{input$kpi_var}` <= 0, 0, log(Data$`{input$kpi_var}`))"); code_text <- paste0(code_text, log_code, "
 
-"); row_log <- data.frame(Type = "KPI_Log", MainModelVariableName = log_var_name, AnalyticalVariableName = input$kpi_var, MediaChannel = "", SubChannel = "", Effect = "", MinPeriod = "", MaxPeriod = "", Metric = "KPI", InitCode = glue::glue("Data$`{log_var_name}` = 0"), FeedCode = glue::glue("Data$`{log_var_name}` = ifelse(Data$`{input$kpi_var}` <= 0, 0, log(Data$`{input$kpi_var}`))"), stringsAsFactors = FALSE); if (length(active_cs) > 0) { for(d in active_cs) row_log[[d]] <- "" }; new_rows_metadata <- bind_rows(new_rows_metadata, row_log) }
+"); row_log <- data.frame(Type = "KPI_Log", MainModelVariableName = log_var_name, AnalyticalVariableName = input$kpi_var, MediaChannel = "", SubChannel = "", Effect = "", MinPeriod = "", MaxPeriod = "", ModeledVarType = "Modeled", Metric = "KPI", InitCode = glue::glue("Data$`{log_var_name}` = 0"), FeedCode = glue::glue("Data$`{log_var_name}` = ifelse(Data$`{input$kpi_var}` <= 0, 0, log(Data$`{input$kpi_var}`))"), stringsAsFactors = FALSE); if (length(active_cs) > 0) { for(d in active_cs) row_log[[d]] <- "" }; new_rows_metadata <- bind_rows(new_rows_metadata, row_log) }
     if (isTRUE(input$gen_weight)) {
       fy_code <- ""
       if (input$fy_method == "auto") { req("Period" %in% all_cols); valid_dates <- as.Date(df_analytical$Period[!is.na(df_analytical[[input$kpi_var]]) & df_analytical[[input$kpi_var]] > 0]); if (length(valid_dates) > 0) { valid_dates <- sort(valid_dates); max_date <- max(valid_dates, na.rm = TRUE); max_year <- as.numeric(format(max_date, "%Y")); get_closest_date <- function(target, available_dates) { available_dates[which.min(abs(available_dates - target))] }; c1_end <- max_date; c1_start <- get_closest_date(c1_end - 364, valid_dates); lbl1 <- paste0("FY", substr(as.character(max_year), 3, 4)); c2_end <- get_closest_date(c1_start - 7, valid_dates); c2_start <- get_closest_date(c2_end - 364, valid_dates); lbl2 <- paste0("FY", substr(as.character(max_year - 1), 3, 4)); c3_end <- get_closest_date(c2_start - 7, valid_dates); c3_start <- get_closest_date(c3_end - 364, valid_dates); lbl3 <- paste0("FY", substr(as.character(max_year - 2), 3, 4)); fy_code <- glue::glue("# Temporal Business Cycle (Trailing 52-Week Cycles)
@@ -698,13 +698,13 @@ Data$`Weight Variable MMM` <- ave(
     }}
   }}
 )")
-      code_text <- paste0(code_text, weight_code); row_weight <- data.frame(Type = "Weight_Var", MainModelVariableName = "Weight Variable MMM", AnalyticalVariableName = if(isTRUE(input$gen_log)) log_var_name else input$kpi_var, MediaChannel = "", SubChannel = "", Effect = "", MinPeriod = "", MaxPeriod = "", Metric = "Weight", InitCode = "", FeedCode = as.character(weight_code), stringsAsFactors = FALSE); if (length(active_cs) > 0) { for(d in active_cs) row_weight[[d]] <- "" }; new_rows_metadata <- bind_rows(new_rows_metadata, row_weight)
+      code_text <- paste0(code_text, weight_code); row_weight <- data.frame(Type = "Weight_Var", MainModelVariableName = "Weight Variable MMM", AnalyticalVariableName = if(isTRUE(input$gen_log)) log_var_name else input$kpi_var, MediaChannel = "", SubChannel = "", Effect = "", MinPeriod = "", MaxPeriod = "", ModeledVarType = "ForEfficiencyCalculation", Metric = "Weight", InitCode = "", FeedCode = as.character(weight_code), stringsAsFactors = FALSE); if (length(active_cs) > 0) { for(d in active_cs) row_weight[[d]] <- "" }; new_rows_metadata <- bind_rows(new_rows_metadata, row_weight)
     }
     updateTextAreaInput(session, "kpi_code_area", value = code_text); if (nrow(new_rows_metadata) > 0) { vof_history_df(bind_rows(vof_history_df(), new_rows_metadata)); showNotification("KPI Variables successfully saved to history!", type = "message") }
   })
   
   # --- BLOQUES PREEXISTENTES (Media, Importación, Descargas) ---
-  observeEvent(input$restore_trigger, { req(input$restore_trigger); tryCatch({ restored_df <- jsonlite::fromJSON(input$restore_trigger, flatten = TRUE); if(!is.data.frame(restored_df)) restored_df <- dplyr::bind_rows(restored_df); if("MinPeriod" %in% names(restored_df)) restored_df$MinPeriod <- suppressWarnings(as.Date(restored_df$MinPeriod)); if("MaxPeriod" %in% names(restored_df)) restored_df$MaxPeriod <- suppressWarnings(as.Date(restored_df$MaxPeriod)); if(nrow(restored_df) > 0){ vof_history_df(restored_df); showNotification(paste("Restored", nrow(restored_df), "VOFs from browser history."), type = "message", duration = 5) } }, error = function(e) { session$sendCustomMessage("clearBrowserStorage", "reset"); vof_history_df(data.frame()) }) })
+  observeEvent(input$restore_trigger, { req(input$restore_trigger); tryCatch({ restored_df <- jsonlite::fromJSON(input$restore_trigger, flatten = TRUE); if(!is.data.frame(restored_df)) restored_df <- dplyr::bind_rows(restored_df); restored_df <- normalize_modeled_var_type(restored_df); restored_df <- normalize_media_metrics(restored_df); if("MinPeriod" %in% names(restored_df)) restored_df$MinPeriod <- suppressWarnings(as.Date(restored_df$MinPeriod)); if("MaxPeriod" %in% names(restored_df)) restored_df$MaxPeriod <- suppressWarnings(as.Date(restored_df$MaxPeriod)); if(nrow(restored_df) > 0){ vof_history_df(restored_df); showNotification(paste("Restored", nrow(restored_df), "VOFs from browser history."), type = "message", duration = 5) } }, error = function(e) { session$sendCustomMessage("clearBrowserStorage", "reset"); vof_history_df(data.frame()) }) })
   observeEvent(vof_history_df(), { current_data <- vof_history_df(); if(nrow(current_data) > 0){ json_data <- jsonlite::toJSON(current_data, dataframe = "rows"); session$sendCustomMessage("saveToBrowser", json_data) } }, ignoreInit = TRUE)
   observeEvent(input$import_code_modal_btn, { showModal(modalDialog(title = "Restore from VOF Code", size = "l", p("Paste your generated R code below..."), textAreaInput("paste_code_area", "Paste Code Here", rows = 15, width = "100%", placeholder = "#### Title ####
 Data[...] <- ..."), footer = tagList(modalButton("Cancel"), actionButton("process_import_btn", "Process & Restore", class = "btn btn-success")))) })
@@ -714,7 +714,18 @@ Data[...] <- ..."), footer = tagList(modalButton("Cancel"), actionButton("proces
   observeEvent(input$process_import_btn, {
     req(input$paste_code_area); vofs_found <- parse_vof_code_to_list(input$paste_code_area); if(length(vofs_found) == 0) { showNotification("No valid VOFs found.", type = "error"); return() }
     removeModal(); new_meta_accum <- data.frame(); vof_names <- names(vofs_found)
-    for(vname in vof_names) { rows_data <- vofs_found[[vname]]; is_spend <- grepl("---Spend$", vname, ignore.case = TRUE); for(i in seq_along(rows_data)) { rows_data[[i]]$vof_name_override <- vname }; meta_df <- generate_vof_data_from_list(all_modules_data = rows_data, active_cs_dims = cs_detect(), output_type = "data.frame", generate_spend = FALSE, all_analytical_vars = analytical_cols()); if (!is.null(meta_df) && nrow(meta_df) > 0) { if (is_spend) meta_df$Metric <- "Spend"; new_meta_accum <- bind_rows(new_meta_accum, meta_df) } }
+    for(vname in vof_names) {
+      rows_data <- vofs_found[[vname]]
+      is_spend <- grepl("---Spend$", vname, ignore.case = TRUE)
+      spend_base_name <- sub("---Spend$", "", vname, ignore.case = TRUE)
+      is_paired_spend <- is_spend && tolower(spend_base_name) %in% tolower(vof_names)
+      for(i in seq_along(rows_data)) { rows_data[[i]]$vof_name_override <- vname }
+      meta_df <- generate_vof_data_from_list(all_modules_data = rows_data, active_cs_dims = cs_detect(), output_type = "data.frame", generate_spend = FALSE, all_analytical_vars = analytical_cols())
+      if (!is.null(meta_df) && nrow(meta_df) > 0) {
+        if (is_paired_spend) meta_df$ModeledVarType <- "ForEfficiencyCalculation"
+        new_meta_accum <- bind_rows(new_meta_accum, meta_df)
+      }
+    }
     vof_history_df(bind_rows(vof_history_df(), new_meta_accum))
     vof_names_base <- vof_names[!grepl("---Spend$", vof_names, ignore.case = TRUE)]; if(length(vof_names_base) > 0) { last_vof_name <- vof_names_base[length(vof_names_base)] } else { last_vof_name <- vof_names[length(vof_names)] }
     last_vof_rows <- vofs_found[[last_vof_name]]; current_mods <- modules_list(); for(mod_id in names(current_mods)){ removeUI(selector = paste0("#", NS(mod_id, "panel_container"))) }; modules_list(list()) 
@@ -727,7 +738,7 @@ Data[...] <- ..."), footer = tagList(modalButton("Cancel"), actionButton("proces
   
   observeEvent(input$purify_btn, {
     req(input$file_details); full_meta <- vof_history_df()
-    if(!is.null(input$file_metadata)){ try({ old_path <- input$file_metadata$datapath; is_csv <- tools::file_ext(input$file_metadata$name) == "csv"; old_meta <- if(is_csv) read.csv(old_path, stringsAsFactors = FALSE) else as.data.frame(readxl::read_xlsx(old_path)); old_meta[is.na(old_meta)] <- ""; full_meta <- bind_rows(old_meta, full_meta) }, silent = TRUE) }
+    if(!is.null(input$file_metadata)){ try({ old_path <- input$file_metadata$datapath; is_csv <- tools::file_ext(input$file_metadata$name) == "csv"; old_meta <- if(is_csv) read.csv(old_path, stringsAsFactors = FALSE) else as.data.frame(readxl::read_xlsx(old_path)); old_meta[is.na(old_meta)] <- ""; old_meta <- normalize_modeled_var_type(old_meta); old_meta <- normalize_media_metrics(old_meta); full_meta <- bind_rows(old_meta, full_meta) }, silent = TRUE) }
     if(nrow(full_meta) == 0) { showNotification("No metadata to purify.", type = "warning"); return() }
     tryCatch({ ext <- tools::file_ext(input$file_details$name); details_df <- if(ext == "csv") read.csv(input$file_details$datapath, stringsAsFactors = FALSE) else as.data.frame(readxl::read_xlsx(input$file_details$datapath)); if ("Type" %in% names(details_df)) { details_df_base <- details_df %>% filter(!str_detect(str_to_lower(Type), "none")) } else { details_df_base <- details_df }; valid_vars <- as.character(details_df_base[[1]]); details_warning <- details_df; if ("Type" %in% names(details_warning)) { details_warning <- details_warning %>% filter(!str_detect(str_to_lower(Type), 'none|dep')) }; mff_dims <- c('Geography', 'Product', 'Campaign', 'Outlet', 'Creative'); active_cs <- cs_detect(); longitudinal_dims <- setdiff(mff_dims, active_cs); for (ldim in longitudinal_dims) { if (ldim %in% names(details_warning)) { details_warning <- details_warning[is.na(details_warning[[ldim]]) | trimws(as.character(details_warning[[ldim]])) == "", ] } }; warning_vars <- as.character(details_warning[[1]]); warning_vars <- warning_vars[!str_detect(warning_vars, "(?i)Business|Macro|Seasonal|Season|Holiday|")]; found_in_meta <- unique(c(full_meta$MainModelVariableName, str_remove(full_meta$MainModelVariableName[str_ends(full_meta$MainModelVariableName, "---Spend")], "---Spend"))); missing_vars <- setdiff(warning_vars, found_in_meta); media_keywords <- "(?i)Display|Banner|Native|OLV|Online Video|Connected TV|CTV|Magazine|Newspaper|Event|Social|Search|OOH|TV|Radio|Cinema|Digital|Audio|Podcast|Influencer|Affiliate|Programmatic|VOD|Youtube|Meta|Facebook|Instagram|TikTok|Google|Bing|Pinterest|Snapchat"; if(length(missing_vars) > 0) { media_missing <- missing_vars[str_detect(missing_vars, media_keywords)]; other_missing <- missing_vars[!str_detect(missing_vars, media_keywords)]; missing_vars <- c(media_missing, other_missing) }; full_meta_purified <- full_meta %>% filter(MainModelVariableName %in% valid_vars | (str_ends(MainModelVariableName, "---Spend") & str_remove(MainModelVariableName, "---Spend") %in% valid_vars)); rows_before <- nrow(full_meta); rows_after <- nrow(full_meta_purified); vof_history_df(full_meta_purified); shinyjs::reset("file_metadata"); shinyjs::runjs("Shiny.setInputValue('file_metadata', null);"); if (length(missing_vars) > 0) { display_vars <- missing_vars; if (length(missing_vars) > 15) { display_vars <- c(missing_vars[1:15], paste("... and", length(missing_vars) - 15, "more")) }; showModal(modalDialog(title = tagList(icon("exclamation-triangle", style="color: #f39c12;"), " Warning: Missing Media VOFs"), p(style="font-weight: bold;", "Based on your Details file, the following expected Media variables were NOT found in your VOF Metadata:"), tags$div(style = "max-height: 200px; overflow-y: auto; background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 4px;", tags$ul(style = "margin-bottom: 0;", lapply(display_vars, tags$li))), tags$br(), p("The purification process has been completed with the matching variables. You can continue, but note your metadata might be missing standard media builds."), easyClose = FALSE, footer = modalButton("I Understand & Continue"))) } else { showNotification(glue::glue("Purified Project! Reduced from {rows_before} to {rows_after} variables."), type = "message", duration = 8) } }, error = function(e) { showNotification(paste("Error reading Details file:", e$message), type = "error") })
   })
@@ -737,11 +748,50 @@ Data[...] <- ..."), footer = tagList(modalButton("Cancel"), actionButton("proces
   output$download_csv <- downloadHandler(
     filename = function() { paste0(format(Sys.time(), "%y%m%d%H%M%S"), " - VOF Metadata.csv") },
     content = function(file) {
-      final_data <- vof_history_df(); active_dims <- cs_detect()
-      if(nrow(final_data) == 0 && length(modules_list()) > 0){ all_inputs <- lapply(modules_list(), function(mod) mod$get_data()); final_data <- generate_vof_data_from_list(all_inputs, active_cs_dims = active_dims, output_type = "data.frame", generate_spend = input$auto_spend, all_analytical_vars = analytical_cols()) }
-      if(!is.null(input$file_metadata)){ try({ old_path <- input$file_metadata$datapath; is_csv <- tools::file_ext(input$file_metadata$name) == "csv"; old_meta <- if(is_csv) read.csv(old_path, stringsAsFactors = FALSE) else as.data.frame(readxl::read_xlsx(old_path)); old_meta[is.na(old_meta)] <- ""; map_old_to_new <- c("Geographies"="Geography", "Products"="Product", "Campaigns"="Campaign", "Outlets"="Outlet", "Creatives"="Creative"); for(old_col in names(map_old_to_new)) { new_col_target <- map_old_to_new[[old_col]]; if(new_col_target %in% active_dims && old_col %in% names(old_meta)) { old_meta[[new_col_target]] <- as.character(old_meta[[old_col]]) } }; cols_static <- c("Type", "MainModelVariableName", "AnalyticalVariableName", "MediaChannel", "SubChannel", "Effect", "MinPeriod", "MaxPeriod", "Backcasting_Start", "Backcasting_End"); cols_end <- c("Metric", "InitCode", "FeedCode"); all_expected <- unique(c(cols_static, active_dims, cols_end)); for(col in all_expected) { if(!col %in% names(old_meta)) old_meta[[col]] <- "" }; cols_final_order <- c(cols_static, active_dims, "Metric", "InitCode", "FeedCode"); old_meta_clean <- old_meta[, intersect(cols_final_order, names(old_meta)), drop=FALSE]; final_data <- bind_rows(old_meta_clean, final_data) }, silent = TRUE) }
-      if(nrow(final_data) > 0) { final_data[is.na(final_data)] <- ""; if (!"Type" %in% names(final_data)) { final_data$Type <- "Media" } else { final_data$Type[final_data$Type == ""] <- "Media" }; cols_static <- c("Type", "MainModelVariableName", "AnalyticalVariableName", "MediaChannel", "SubChannel", "Effect", "MinPeriod", "MaxPeriod", "Backcasting_Start", "Backcasting_End"); cols_final_order <- c(cols_static, active_dims, "Metric", "InitCode", "FeedCode"); final_data <- final_data[, intersect(cols_final_order, names(final_data)), drop=FALSE]; final_data <- dplyr::distinct(final_data) }
-      req(nrow(final_data) > 0); write.csv(final_data, file, row.names = FALSE)
+      final_data <- vof_history_df()
+      active_dims <- cs_detect()
+      if(nrow(final_data) == 0 && length(modules_list()) > 0){
+        all_inputs <- lapply(modules_list(), function(mod) mod$get_data())
+        final_data <- generate_vof_data_from_list(all_inputs, active_cs_dims = active_dims, output_type = "data.frame", generate_spend = input$auto_spend, all_analytical_vars = analytical_cols())
+      }
+      if(!is.null(input$file_metadata)){
+        try({
+          old_path <- input$file_metadata$datapath
+          is_csv <- tools::file_ext(input$file_metadata$name) == "csv"
+          old_meta <- if(is_csv) read.csv(old_path, stringsAsFactors = FALSE) else as.data.frame(readxl::read_xlsx(old_path))
+          old_meta[is.na(old_meta)] <- ""
+          old_meta <- normalize_modeled_var_type(old_meta)
+          old_meta <- normalize_media_metrics(old_meta)
+          map_old_to_new <- c("Geographies"="Geography", "Products"="Product", "Campaigns"="Campaign", "Outlets"="Outlet", "Creatives"="Creative")
+          for(old_col in names(map_old_to_new)) {
+            new_col_target <- map_old_to_new[[old_col]]
+            if(new_col_target %in% active_dims && old_col %in% names(old_meta)) old_meta[[new_col_target]] <- as.character(old_meta[[old_col]])
+          }
+          cols_static <- c("Type", "MainModelVariableName", "AnalyticalVariableName", "MediaChannel", "SubChannel", "Effect", "MinPeriod", "MaxPeriod", "Backcasting_Start", "Backcasting_End")
+          cols_end <- c("ModeledVarType", "Metric", "InitCode", "FeedCode")
+          all_expected <- unique(c(cols_static, active_dims, cols_end))
+          for(col in all_expected) { if(!col %in% names(old_meta)) old_meta[[col]] <- "" }
+          cols_final_order <- c(cols_static, active_dims, "ModeledVarType", "Metric", "InitCode", "FeedCode")
+          old_meta_clean <- old_meta[, intersect(cols_final_order, names(old_meta)), drop=FALSE]
+          final_data <- bind_rows(old_meta_clean, final_data)
+        }, silent = TRUE)
+      }
+      if(nrow(final_data) > 0) {
+        final_data[is.na(final_data)] <- ""
+        final_data <- normalize_modeled_var_type(final_data)
+        if (!"Type" %in% names(final_data)) {
+          final_data$Type <- "Media"
+        } else {
+          final_data$Type[final_data$Type == ""] <- "Media"
+        }
+        final_data <- normalize_media_metrics(final_data)
+        cols_static <- c("Type", "MainModelVariableName", "AnalyticalVariableName", "MediaChannel", "SubChannel", "Effect", "MinPeriod", "MaxPeriod", "Backcasting_Start", "Backcasting_End")
+        cols_final_order <- c(cols_static, active_dims, "ModeledVarType", "Metric", "InitCode", "FeedCode")
+        final_data <- final_data[, intersect(cols_final_order, names(final_data)), drop=FALSE]
+        final_data <- dplyr::distinct(final_data)
+      }
+      req(nrow(final_data) > 0)
+      write.csv(final_data, file, row.names = FALSE)
     }
   )
 

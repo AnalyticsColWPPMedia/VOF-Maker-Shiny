@@ -24,6 +24,137 @@ helper_period_vof_name <- function(date_var){
   sprintf("%04d%02d%02d", year(d), month(d), day(d))
 }
 
+detect_media_metric <- function(analytical_var, fallback = "Activity") {
+  if (!is_valid_value(analytical_var)) return(fallback)
+  normalized_var <- analytical_var %>%
+    as.character() %>%
+    str_replace_all("[_-]+", " ") %>%
+    str_squish() %>%
+    str_to_lower()
+
+  metric_aliases <- list(
+    "Gross Cost" = "gross cost",
+    "Net Cost" = "net cost",
+    "Engagements" = "engagements",
+    "Impressions" = "impressions",
+    "Circulation" = "circulation",
+    "Attendance" = c("attendance", "attandance"),
+    "Engagement" = "engagement",
+    "Sessions" = "sessions",
+    "Actions" = "actions",
+    "Clicks" = "clicks",
+    "Visits" = "visits",
+    "Spend" = "spend",
+    "Views" = "views",
+    "Reach" = "reach",
+    "GRPs" = "grps",
+    "Cost" = "cost"
+  )
+
+  matches <- list()
+  for (metric_name in names(metric_aliases)) {
+    for (alias in metric_aliases[[metric_name]]) {
+      locations <- str_locate_all(normalized_var, fixed(alias))[[1]]
+      if (nrow(locations) > 0) {
+        for (location_index in seq_len(nrow(locations))) {
+          matches[[length(matches) + 1]] <- data.frame(
+            metric = metric_name,
+            start = locations[location_index, "start"],
+            end = locations[location_index, "end"],
+            length = locations[location_index, "end"] - locations[location_index, "start"] + 1,
+            stringsAsFactors = FALSE
+          )
+        }
+      }
+    }
+  }
+
+  if (length(matches) == 0) return(fallback)
+
+  matches_df <- bind_rows(matches) %>%
+    arrange(start, desc(length))
+  selected_rows <- integer(0)
+
+  for (match_index in seq_len(nrow(matches_df))) {
+    overlaps_existing <- if (length(selected_rows) == 0) {
+      FALSE
+    } else {
+      any(
+        matches_df$start[match_index] <= matches_df$end[selected_rows] &
+          matches_df$end[match_index] >= matches_df$start[selected_rows]
+      )
+    }
+    if (!overlaps_existing) selected_rows <- c(selected_rows, match_index)
+  }
+
+  detected_metrics <- matches_df$metric[selected_rows]
+  detected_metrics <- detected_metrics[!duplicated(detected_metrics)]
+  paste(detected_metrics, collapse = "/")
+}
+
+normalize_media_metrics <- function(metadata_df) {
+  if (is.null(metadata_df) || !is.data.frame(metadata_df) || nrow(metadata_df) == 0 ||
+      !"AnalyticalVariableName" %in% names(metadata_df)) {
+    return(metadata_df)
+  }
+
+  if (!"Metric" %in% names(metadata_df)) metadata_df$Metric <- ""
+  metadata_df$Metric <- as.character(metadata_df$Metric)
+  if (!"Type" %in% names(metadata_df)) {
+    is_media <- rep(TRUE, nrow(metadata_df))
+  } else {
+    metadata_type <- as.character(metadata_df$Type)
+    is_media <- is.na(metadata_type) | trimws(metadata_type) == "" |
+      str_to_lower(trimws(metadata_type)) == "media"
+  }
+
+  media_rows <- which(is_media)
+  for (row_index in media_rows) {
+    current_metric <- as.character(metadata_df$Metric[row_index])
+    fallback <- if (!is.na(current_metric) && trimws(current_metric) != "") current_metric else "Activity"
+    metadata_df$Metric[row_index] <- detect_media_metric(
+      metadata_df$AnalyticalVariableName[row_index],
+      fallback
+    )
+  }
+
+  metadata_df
+}
+
+normalize_modeled_var_type <- function(metadata_df) {
+  if (is.null(metadata_df) || !is.data.frame(metadata_df) || nrow(metadata_df) == 0) {
+    return(metadata_df)
+  }
+
+  valid_types <- c("Modeled", "ForEfficiencyCalculation")
+  if (!"ModeledVarType" %in% names(metadata_df)) {
+    metadata_df$ModeledVarType <- NA_character_
+  } else {
+    metadata_df$ModeledVarType <- as.character(metadata_df$ModeledVarType)
+  }
+
+  modeled_names <- if ("MainModelVariableName" %in% names(metadata_df)) {
+    as.character(metadata_df$MainModelVariableName)
+  } else {
+    rep("", nrow(metadata_df))
+  }
+  all_names_lower <- str_to_lower(modeled_names)
+  base_names_lower <- str_to_lower(str_remove(modeled_names, regex("---Spend$", ignore_case = TRUE)))
+  is_paired_spend <- str_detect(modeled_names, regex("---Spend$", ignore_case = TRUE)) &
+    base_names_lower %in% all_names_lower
+
+  needs_inference <- is.na(metadata_df$ModeledVarType) |
+    trimws(metadata_df$ModeledVarType) == "" |
+    !metadata_df$ModeledVarType %in% valid_types
+  metadata_df$ModeledVarType[needs_inference] <- ifelse(
+    is_paired_spend[needs_inference],
+    "ForEfficiencyCalculation",
+    "Modeled"
+  )
+
+  metadata_df
+}
+
 find_pair_variable <- function(activity_var, all_vars) {
   if (is.null(all_vars) || length(all_vars) == 0) return(NULL)
   
@@ -187,7 +318,7 @@ generate_vof_data_from_list <- function(all_modules_data,
   
   if(output_type == "data.frame") {
     
-    build_df_rows <- function(modules, v_name, full_code_block, metric_label) {
+    build_df_rows <- function(modules, v_name, full_code_block, metric_fallback, modeled_var_type) {
       lapply(modules, function(mod) {
         cs_list <- list(cs_geography=mod$cs_geography, cs_product=mod$cs_product, cs_campaign=mod$cs_campaign, cs_outlet=mod$cs_outlet, cs_creative=mod$cs_creative)
         filter_str <- generate_filter_string(mod$start_period, mod$end_period, cs_list)
@@ -206,7 +337,8 @@ generate_vof_data_from_list <- function(all_modules_data,
         )
         if(!is.null(active_cs_dims)) for(d in active_cs_dims) { k<-paste0("cs_",tolower(d)); row_df[[d]] <- if(k %in% names(mod) && is_valid_value(mod[[k]])) paste(mod[[k]], collapse=", ") else "" }
         
-        row_df$Metric <- metric_label
+        row_df$ModeledVarType <- modeled_var_type
+        row_df$Metric <- detect_media_metric(mod$analytical_var, metric_fallback)
         row_df$InitCode <- glue::glue("Data[, '{v_name}'] <- 0")
         row_df$FeedCode <- spec_feed
         
@@ -214,10 +346,10 @@ generate_vof_data_from_list <- function(all_modules_data,
       })
     }
     
-    rows_act <- build_df_rows(all_modules_data, vof_name_activity, full_block_code, "Activity")
+    rows_act <- build_df_rows(all_modules_data, vof_name_activity, full_block_code, "Activity", "Modeled")
     rows_spd <- list()
     if(has_spend) {
-      rows_spd <- build_df_rows(spend_modules_data, vof_name_spend, full_block_code, "Spend")
+      rows_spd <- build_df_rows(spend_modules_data, vof_name_spend, full_block_code, "Spend", "ForEfficiencyCalculation")
     }
     
     final_df <- bind_rows(c(rows_act, rows_spd))
@@ -227,7 +359,7 @@ generate_vof_data_from_list <- function(all_modules_data,
     
     cols_static <- c("MainModelVariableName", "AnalyticalVariableName", "MediaChannel", "SubChannel", "Effect", "MinPeriod", "MaxPeriod")
     cols_dyn <- if(!is.null(active_cs_dims)) active_cs_dims else character(0)
-    cols_end <- c("Metric", "InitCode", "FeedCode")
+    cols_end <- c("ModeledVarType", "Metric", "InitCode", "FeedCode")
     
     expected_order <- c(cols_static, cols_dyn, cols_end)
     return(final_df[, intersect(expected_order, names(final_df)), drop=FALSE])
@@ -458,6 +590,10 @@ parse_legacy_r_code <- function(code_text, analytical_cols_list, active_cs_dims)
       # FIX FINAL: Sobreescribir MainModelVariableName con el nombre Legacy
       if(!is.null(standard_row_df) && nrow(standard_row_df) > 0) {
         standard_row_df$MainModelVariableName <- vof_name
+        legacy_base_name <- sub("---Spend$", "", vof_name, ignore.case = TRUE)
+        is_paired_spend <- grepl("---Spend$", vof_name, ignore.case = TRUE) &&
+          tolower(legacy_base_name) %in% tolower(vof_names_ordered)
+        if(is_paired_spend) standard_row_df$ModeledVarType <- "ForEfficiencyCalculation"
         final_rows[[length(final_rows) + 1]] <- standard_row_df
       }
     }
