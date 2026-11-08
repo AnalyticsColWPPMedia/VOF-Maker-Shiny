@@ -80,20 +80,39 @@ Shiny.addCustomMessageHandler('toggleDownloadButtonClass', function(message) {
   });
 })();
 
-// Handler para guardar en LocalStorage
-Shiny.addCustomMessageHandler('saveToBrowser', function(data) {
-    localStorage.setItem('vof_maker_history', data);
-});
+/* =======================================================*/
+/* 4. Project history persistence (localStorage)           */
+/* =======================================================*/
+// One entry per project (key = signature of the Analytical's columns), so the
+// history of a project is never restored into another one.
 
-// Handler para borrar LocalStorage
-Shiny.addCustomMessageHandler('clearBrowserStorage', function(msg) {
-    localStorage.removeItem('vof_maker_history');
-});
+(function() {
+  var PREFIX = 'vof_maker_history::';
 
-// Al conectarse, buscar si hay datos guardados y enviarlos a Shiny
-$(document).on('shiny:connected', function() {
-    var storedData = localStorage.getItem('vof_maker_history');
-    if (storedData) {
-        Shiny.setInputValue('restore_trigger', storedData);
-    }
-});
+  Shiny.addCustomMessageHandler('vofmaker-load', function(msg) {
+    var data = null;
+    try { data = window.localStorage.getItem(PREFIX + msg.key); } catch (e) { data = null; }
+    Shiny.setInputValue(msg.input, { key: msg.key, data: data }, { priority: 'event' });
+  });
+
+  Shiny.addCustomMessageHandler('vofmaker-save', function(msg) {
+    try {
+      if (msg.data === null || msg.data === undefined) {
+        window.localStorage.removeItem(PREFIX + msg.key);
+      } else {
+        window.localStorage.setItem(PREFIX + msg.key, msg.data);
+      }
+    } catch (e) { /* storage unavailable or full: history stays in memory */ }
+  });
+})();
+
+/* =======================================================*/
+/* 5. VOFs not downloaded: warn before leaving the page    */
+/* =======================================================*/
+(function() {
+  window.vofUnsaved = 0;
+  Shiny.addCustomMessageHandler('vofmaker-unsaved', function(msg) { window.vofUnsaved = msg.n || 0; });
+  window.addEventListener('beforeunload', function(e) {
+    if (window.vofUnsaved > 0) { e.preventDefault(); e.returnValue = ''; return ''; }
+  });
+})();

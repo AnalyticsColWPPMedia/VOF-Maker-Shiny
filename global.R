@@ -1,19 +1,27 @@
 # global.R
+# Packages, global configuration and sourcing of the business logic (R/core)
+# and Shiny modules (R/modules).
+#
+# The app is written with the tidyverse (team standard). Only the VOF code that
+# the app GENERATES must be base R, because AWB runs it on R 3.6.
 
-# 1. Cargar Librerías
 library(shiny)
+library(shinyjs)
+library(shinyWidgets)
 library(dplyr)
+library(tidyr)
+library(purrr)
 library(stringr)
-library(lubridate)
+library(tibble)
 library(readr)
 library(readxl)
-library(glue)
-library(shinyjs)
-library(jsonlite)
-library(shinyWidgets)
+library(lubridate)
+# jsonlite, plotly and DT are used with pkg:: calls (attaching jsonlite would
+# mask shiny::validate; plotly would mask dplyr verbs such as filter()).
 
-# 2. Cargar Funciones y Módulos
-source("R/core/utils.R")
-source("R/modules/mod_variable_row.R")
+# Files are sourced in name order: core files are numbered by dependency.
+for (f in sort(list.files("R/core", pattern = "\\.R$", full.names = TRUE))) source(f, local = FALSE)
+for (f in sort(list.files("R/modules", pattern = "\\.R$", full.names = TRUE))) source(f, local = FALSE)
 
-# 3. Configuraciones Globales (si hubiera constantes, irían aquí)
+APP_TITLE <- "VOF Maker"
+APP_SUBTITLE <- "By Advanced Analytics Colombia"

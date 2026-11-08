@@ -172,3 +172,150 @@ body {
   border-color: #3498db;
   background: #f1f6f9;
 }
+/* ------------------------------------
+   SECTION: VOF Maker components
+   (inline styles moved out of the R code)
+--------------------------------------- */
+.vof-row {
+  border: 1px solid #e0e0e0;
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+.vof-row-btn { margin-top: 25px; width: 100%; }
+.
+.vof-backcasting-label { color: #e67e22; font-weight: bold; }
+
+.vof-subsection-divider { margin-top: 10px; margin-bottom: 15px; }
+.vof-subsection-title { margin-top: 0; font-weight: bold; color: #2c3e50; }
+.vof-inline-controls { display: flex; gap: 20px; align-items: center; margin-bottom: 5px; }
+.vof-centered { margin-top: 10px; text-align: center; }
+.vof-output-title { font-weight: 600; color: #555; }
+.vof-btn-wide { width: 250px; }
+
+.vof-project-actions .btn { margin-bottom: 8px; }
+.btn-legacy { background-color: #8e44ad !important; border-color: #8e44ad !important; color: #ffffff !important; }
+.btn-warning { color: #ffffff !important; }
+
+.vof-fy-header { margin-bottom: 5px; color: #555; }
+.vof-fy-row { margin-bottom: 5px; display: flex; align-items: center; }
+
+.vof-scroll-list {
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: #f8f9fa;
+  padding: 10px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+/* CS filters inside Component Rows */
+.vof-cs-container { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.vof-cs-block { min-width: 220px; }
+.vof-cs-block:not(.vof-cs-inline) { flex-basis: 100%; }
+.vof-cs-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.vof-cs-header .form-group { margin-bottom: 0; }
+.vof-cs-preview { font-size: 12px; margin-top: 6px; }
+.vof-cs-preview ul { padding-left: 18px; margin-bottom: 0; }
+.vof-cs-preview code { white-space: normal; word-break: break-word; }
+
+/* Fixed-size table card with scrollbars (QA tables, dictionary) */
+.vof-table-card { max-height: 420px; overflow: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+
+/* VOF QA */
+.vof-dt-card { max-height: 520px; overflow: auto; }
+.vof-qa-status { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
+.vof-qa-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1.5px solid; border-radius: 12px; font-weight: 600; }
+.vof-qa-kinds { display: inline-flex; gap: 6px; }
+.vof-qa-kind { background: #eef4fc; color: #1d4f8c; border-radius: 10px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+.vof-qa-note { margin-top: 10px; padding: 8px 12px; background: #fff8e6; border-left: 3px solid #fab219; font-size: 13px; }
+.vof-qa-subtitle { margin-top: 18px; font-weight: 600; color: #2c3e50; }
+.vof-check-table td { vertical-align: middle !important; font-size: 13px; }
+.vof-check-table td:first-child { width: 28px; }
+.vof-qa-legend { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin-bottom: 12px; font-size: 13px; }
+.vof-qa-legend > div { display: contents; }
+
+/* Dummies */
+.vof-dummy-count { text-align: center; padding-top: 18px; font-size: 13px; }
+.vof-dummy-count b { font-size: 22px; color: #2c3e50; }
+.vof-dummy-editor { margin-top: 14px; padding: 12px 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fbfbfa; }
+
+/* Pattern detection: legend of the shaded windows under the overview chart */
+.vof-pattern-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: #52514e; margin: 4px 0 10px 0; }
+.vof-pattern-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.vof-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; opacity: 0.6; }
+
+/* Variable Builder: Activity / Spend / All filter of the variables */
+.vof-var-type { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 12px; }
+.vof-var-type .form-group { margin-bottom: 0; }
+
+/* Media tab: live preview of the VOF names, sticky at the bottom of the screen */
+.vof-name-preview { position: sticky; bottom: 0; z-index: 900; margin: 12px -4px 0; padding: 10px 16px;
+  background: #ffffff; border: 1px solid #d9d7d2; border-top: 3px solid #2a78d6; border-radius: 6px 6px 0 0;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08); font-size: 13px; }
+.vof-name-preview > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.vof-name-preview-title { font-weight: 600; color: #2a78d6; white-space: nowrap; }
+.vof-name-preview-names { display: flex; flex-direction: column; gap: 2px; flex: 1 1 400px; }
+.vof-name-preview-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.vof-name-preview-type { min-width: 92px; color: #52514e; font-size: 12px; }
+.vof-name-preview-line code { font-size: 13.5px; color: #1f1e1c; background: #f3f2ef; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+.vof-name-preview-note { color: #898781; font-size: 12px; }
+.vof-name-preview-missing { color: #b54708; }
+
+/* Sister VOFs: TimeBreaks / CS Groups configuration and row notes */
+.vof-split-block { background: #f7f6f3; border: 1px solid #e3e1dc; border-radius: 6px; padding: 10px 14px 6px; margin-bottom: 8px; }
+.vof-split-cuts { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.vof-split-cut { min-width: 200px; }
+.vof-split-groups { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.vof-split-group { flex: 1 1 200px; max-width: 320px; }
+.vof-split-block .shiny-options-group { display: flex; flex-direction: column; gap: 2px; }
+.vof-split-block .checkbox label span { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.vof-split-msg { color: #b54708; margin: 6px 0; }
+.vof-split-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 10px; margin-top: 24px;
+  background: #eef4fc; border-left: 3px solid #2a78d6; border-radius: 4px; font-size: 12.5px; }
+.vof-cs-block .vof-split-row { margin-top: 4px; }
+.vof-split-off { background: #fdf3e7; border-left-color: #eb6834; }
+.vof-name-preview-names { max-height: 32vh; overflow-y: auto; }
+.vof-name-preview-item { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-right: 14px; }
+.vof-name-preview-sister { min-width: 210px; font-size: 12px; font-weight: 600; color: #52514e; }
+
+.vof-split-ends { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px; }
+.vof-split-ends .form-group { margin-bottom: 4px; }
+.vof-split-group { flex: 1 1 100%; max-width: none; background: #ffffff; border: 1px solid #e3e1dc; border-radius: 6px; padding: 8px 12px 2px; margin-bottom: 8px; }
+.vof-split-children { display: flex; flex-wrap: wrap; gap: 0 12px; }
+.vof-split-child { flex: 0 1 220px; }
+.vof-split-help { display: block; margin-top: 26px; }
+
+/* Optional custom CS flag ("--g MyGroup") next to the Include / Exclude switch */
+.vof-cs-name { display: inline-block; vertical-align: middle; }
+.vof-cs-name .form-group { margin-bottom: 0; }
+.vof-cs-name input.form-control { height: 26px; padding: 2px 8px; font-size: 12px; }
+.vof-split-others .vof-cs-header { flex-wrap: wrap; }
+
+/* Dummies: blocked pairs (same periods) */
+.vof-dummy-blocked { color: #b42318; background: #fdecea; border-left: 3px solid #e34948; padding: 6px 10px; border-radius: 4px; margin-bottom: 8px; font-size: 13px; }
+
+/* Messages: top centre, larger and coloured (app_notify); errors use a modal */
+#shiny-notification-panel { top: 76px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%);
+  width: min(620px, 94vw); max-width: none; z-index: 2000; }
+.shiny-notification { font-size: 14px; line-height: 1.45; padding: 14px 40px 14px 18px; border-radius: 8px; opacity: 1;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18); margin-bottom: 10px; }
+.shiny-notification-message, .shiny-notification-default { background: #eef4fc; border: 1px solid #2a78d6; border-left-width: 5px; color: #173b6b; }
+.shiny-notification-warning { background: #fdf3e7; border: 1px solid #eb6834; border-left-width: 5px; color: #6b2a0c; }
+.shiny-notification-error { background: #fdecea; border: 1px solid #e34948; border-left-width: 5px; color: #7a1b14; }
+.shiny-notification-close { font-size: 20px; top: 8px; right: 12px; }
+.shiny-notification ul { margin: 4px 0 0; padding-left: 18px; }
+.shiny-progress-notification .progress { height: 8px; margin-bottom: 6px; }
+.vof-error-title { color: #b42318; font-weight: 600; display: inline-flex; gap: 8px; align-items: center; }
+.vof-error-body { font-size: 14px; line-height: 1.5; color: #2b2a28; }
+.vof-error-body ul { padding-left: 20px; margin: 0; }
+.vof-error-body li { margin-bottom: 6px; }
+
+/* Download VOF Metadata next to every Generate button; badge with the VOFs not downloaded */
+.vof-action-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.vof-unsaved-badge .shiny-text-output:not(:empty) { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 10px;
+  background: #ffffff; color: #b54708; font-weight: 600; font-size: 12px; }
+
+/* Generated code: show "<-" as typed (no font ligatures) */
+textarea { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
