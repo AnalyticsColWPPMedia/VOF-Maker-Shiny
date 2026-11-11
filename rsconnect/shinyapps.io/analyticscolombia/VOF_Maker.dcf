@@ -5,7 +5,7 @@ account: analyticscolombia
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 16725525
-bundleId: 12464005
+bundleId: 12793742
 url: https://analyticscolombia.shinyapps.io/VOF_Maker/
 version: 1
 asMultiple: FALSE

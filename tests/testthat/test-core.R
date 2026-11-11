@@ -733,7 +733,7 @@ test_that("metric suffix: a space before it; old names without the space are sti
   expect_equal(metric_from_vof("Paid Search---Spend", list(), long)$metric, "Spend")
 })
 
-test_that("dummy conflicts: same event week blocked, some years / ramps warned, seasons informative", {
+test_that("dummy conflicts: only identical columns blocked, other overlaps warned with the weeks, seasons informative", {
   per <- analytical_periods(ana)                                   # Wednesday weeks
   yrs <- unique(year(per))
   d_on <- function(day) as.Date(sprintf("%d-%s", yrs, day))
@@ -745,7 +745,8 @@ test_that("dummy conflicts: same event week blocked, some years / ramps warned, 
   cf <- dummy_conflicts(bind_rows(a, b), NULL, ana, cs)
   expect_equal(cf$Level, "Blocked"); expect_match(cf$Detail, "same periods")
   b3 <- mk("Big Friday", dates = c(per[week_of_year(per) == 47] + 2, per[week_of_year(per) == 10]))   # plus other dates
-  expect_match(dummy_conflicts(bind_rows(a, b3), NULL, ana, cs)$Detail, "every year")
+  cf3 <- dummy_conflicts(bind_rows(a, b3), NULL, ana, cs)                  # same event weeks but not identical -> warning
+  expect_equal(cf3$Level, "Warning"); expect_match(cf3$Detail, format(per[week_of_year(per) == 47][1]))
   # Same dates but different CS scopes -> no conflict.
   b_bos <- tibble(name = "Holiday Big Friday", category = "Holiday",
                   code = code_of(new_dummy("Big Friday", dates = per[week_of_year(per) == 47] + 2, cs = list(Geography = "Boston - North"))))
@@ -757,7 +758,7 @@ test_that("dummy conflicts: same event week blocked, some years / ramps warned, 
   c1 <- mk("Event One", dates = wk)
   c2 <- mk("Event Two", dates = c(wk[1], per[week_of_year(per) == 30][-1]))
   cf <- dummy_conflicts(bind_rows(c1, c2), NULL, ana, cs)
-  expect_equal(cf$Level, "Warning"); expect_match(cf$Detail, str_c("coincide in ", year(wk[1])))
+  expect_equal(cf$Level, "Warning"); expect_match(cf$Detail, str_c("coincide in ", format(wk[1])))
   # Ramp of one runs into the other -> warning.
   e1 <- mk("Eve", dates = per[week_of_year(per) == 50])
   e2 <- mk("Main", dates = per[week_of_year(per) == 51], shape = list(ramp = 2))
@@ -770,4 +771,16 @@ test_that("dummy conflicts: same event week blocked, some years / ramps warned, 
   # A saved dummy with the name of a pending one is being replaced: not compared.
   expect_equal(nrow(dummy_conflicts(a, a, ana, cs)), 0)
   expect_match(dummy_conflict_summary(dummy_conflicts(bind_rows(a, b), NULL, ana, cs), c(a$name, b$name))[2], "^Blocked: with Holiday Big Thursday")
+})
+
+test_that("dummy conflicts: a long event window that contains another event is a warning, not a block", {
+  per <- analytical_periods(ana)
+  code_of <- function(d) generate_dummy(d, per, cs)$code
+  mk <- function(...) { d <- new_dummy(...); tibble(name = dummy_name(d), category = d$category, code = code_of(d)) }
+  holiday <- mk("Juneteenth", category = "Business", dates = per[week_of_year(per) == 24])
+  storm <- mk("Geopolitical Storm", category = "Macro", dates = per[60:90])
+  cf <- dummy_conflicts(storm, holiday, ana, cs)
+  shared <- intersect(per[60:90], per[week_of_year(per) == 24])
+  expect_equal(cf$Level, "Warning")
+  expect_match(cf$Detail, format(as.Date(shared[1])))
 })

@@ -6,10 +6,10 @@
 # different days of the same week collide and different CS scopes do not.
 #
 # Levels:
-#   Blocked  - the event periods coincide in every year both dummies have, or
-#              the two columns switch on in exactly the same rows;
-#   Warning  - the event periods coincide only in some years, or a ramp/decay
-#              of one dummy runs into the other;
+#   Blocked  - the two columns switch on in exactly the same rows (periods and
+#              entities): the dummies are the same variable;
+#   Warning  - they share some periods (event weeks or a ramp / decay running
+#              into the other dummy): the shared weeks are listed;
 #   Info     - a Season window contains the other dummy (usual: the holiday
 #              models the peak on top of the season), unless identical.
 
@@ -42,16 +42,11 @@ dummy_pair_conflict <- function(a, b, periods, season = FALSE) {
     return(list(level = DUMMY_CONFLICT_LEVELS[["blocked"]], detail = "switch on in exactly the same periods and entities"))
   if (season)
     return(list(level = DUMMY_CONFLICT_LEVELS[["info"]], detail = str_c("inside the season window (", fmt_weeks(periods[both]), ")")))
-  yr <- year(periods)
   ev_a <- on_a & a >= max(a[on_a]); ev_b <- on_b & b >= max(b[on_b])   # event periods (weight 1), not ramp / decay
-  common_years <- intersect(yr[ev_a], yr[ev_b])
-  clash_years <- sort(unique(yr[ev_a & ev_b]))
-  if (length(clash_years) > 0 && length(common_years) > 0 && all(common_years %in% clash_years))
-    return(list(level = DUMMY_CONFLICT_LEVELS[["blocked"]],
-                detail = sprintf("event periods coincide every year (%s)", str_c(clash_years, collapse = ", "))))
-  if (length(clash_years) > 0)
+  # Only identical columns are blocked; any other overlap is a warning with the shared weeks.
+  if (any(ev_a & ev_b))
     return(list(level = DUMMY_CONFLICT_LEVELS[["warning"]],
-                detail = sprintf("event periods coincide in %s", str_c(clash_years, collapse = ", "))))
+                detail = str_c("event periods coincide in ", fmt_weeks(periods[ev_a & ev_b]))))
   list(level = DUMMY_CONFLICT_LEVELS[["warning"]], detail = str_c("ramp / decay overlap in ", fmt_weeks(periods[both])))
 }
 

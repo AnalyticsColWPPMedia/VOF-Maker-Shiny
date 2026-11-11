@@ -1,5 +1,11 @@
 # VOF Maker — Changelog
 
+## Phase 3g, revision 2 — Dummy conflicts: block only identical dummies (2026-11-11)
+- Generation is blocked only when two dummies switch on in exactly the same periods and entities.
+- Any other overlap (event weeks in common, even every year, or a ramp / decay running into
+  another dummy) is a warning that lists the shared weeks, e.g. "event periods coincide in
+  2026-06-14". Season windows stay informative.
+
 ## Phase 3h — Visible messages and metadata download everywhere (2026-11-08)
 - Messages (new `R/modules/mod_messages.R`, `app_notify()` used by every tab):
   - errors open a modal in the middle of the screen that has to be closed ("OK");
