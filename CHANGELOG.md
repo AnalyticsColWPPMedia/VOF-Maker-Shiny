@@ -3,11 +3,14 @@
 ## Fix — Oldest metadata format (2026-11-12)
 - Uploading metadata without a `Type` column failed ("Can't recycle `true`..."): the migration
   assumed that column existed. Files without it only had media VOFs.
-- Those oldest files (InitCode / FeedCode columns) are now rebuilt from their own code with the
-  Restore parser, since the code is what AWB runs: filters, periods, labels and metric come from
-  it. Rows repeated with the same code are ignored; when a row's name differs from the VOF its
-  code creates, the code's name is used and the app lists them (to review in VOF QA). Rows
-  without readable code are migrated column by column. The app shows these notes as a warning.
+- Those files are read from their metadata columns; `InitCode` / `FeedCode` are ignored (they were
+  not kept up to date):
+  - Metric: a name ending in `---Spend` is spend; otherwise the root decides (a cost / spend root is
+    spend even without `---Spend`, when the spend VOF was the main one); other roots get their
+    metric from the dictionary (Impressions, Clicks, GRPs, ...), or "Activity" if none is found.
+  - CS filters were always an inclusion: the values are the list of entities (`Include|Exact`).
+  - Dates d/m/Y are converted; there was no backcasting.
+  - Repeated rows are dropped. The app shows a note with what it did.
 
 ## Phase 3g, revision 2 — Dummy conflicts: block only identical dummies (2026-11-11)
 - Generation is blocked only when two dummies switch on in exactly the same periods and entities.

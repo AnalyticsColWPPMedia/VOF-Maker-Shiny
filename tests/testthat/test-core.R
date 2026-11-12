@@ -785,26 +785,23 @@ test_that("dummy conflicts: a long event window that contains another event is a
   expect_match(cf$Detail, format(as.Date(shared[1])))
 })
 
-test_that("old metadata without Type (InitCode / FeedCode, comma lists, d/m/Y) is rebuilt from its code", {
-  comps <- list(new_component("TV GRPs_Watches_Total_Total_Total", "TV", effect = "Direct", end_period = "2024-09-22",
-                              cs = list(Geography = c("Atlanta", "McDonald's Land"))))
-  res <- generate_media_vof(comps, cs, mff, long, generate_twin = FALSE, context = list(analytical = ana))
-  lines <- str_split(res$code, "\n")[[1]] %>% keep(~ str_detect(.x, "^Data\\["))
-  old <- tibble(MainModelVariableName = c(res$name, res$name, "Wrong Name"), AnalyticalVariableName = "TV GRPs_Watches_Total_Total_Total",
-                MediaChannel = "TV", SubChannel = "", Effect = "Direct", MinPeriod = "", MaxPeriod = "22/09/2024",
-                Geography = "Atlanta, McDonald's Land", Metric = "Activity",
-                InitCode = lines[1], FeedCode = c(lines[2], lines[2], lines[2]))
+test_that("old metadata without Type is read from its columns (InitCode / FeedCode ignored)", {
+  old <- tibble(
+    MainModelVariableName = c("TV --Direct --g Atlanta etc", "TV --Direct --g Atlanta etc", "TV --Direct --g Atlanta etc---Spend",
+                              "Search Cost Main", "TV --Direct --g Atlanta etc"),
+    AnalyticalVariableName = c("TV GRPs_Watches_Total_Total_Total", "TV GRPs_Watches_Total_Total_Total", "TV Spend_Watches_Total_Total_Total",
+                               "Search Cost_Watches_Total_Total_Total", "TV GRPs_Watches_Total_Total_Total"),
+    MediaChannel = "TV", SubChannel = c("", "", "", "Brand", ""), Effect = "Direct", MinPeriod = "", MaxPeriod = "22/09/2024",
+    Geography = "Atlanta, McDonald's Land", Metric = "Activity",
+    InitCode = "Data[, 'Something else'] <- 0", FeedCode = c("wrong code 1", "wrong code 2", "x", "y", "wrong code 1"))
   path <- tempfile(fileext = ".csv"); write_csv(old, path)
   m <- read_metadata_file(path, "old.csv", cs)
-  expect_equal(unique(m$MainModelVariableName), res$name)
-  expect_equal(m$Geography, cs_filter_to_meta(new_cs_filter(c("Atlanta", "McDonald's Land")))$values); expect_equal(m$MaxPeriod, "2024-09-22")
-  expect_equal(m$Metric, "GRPs"); expect_equal(m$Type, "Media")
-  expect_match(attr(m, "notes"), "rebuilt from their code", all = FALSE)
-  expect_match(attr(m, "notes"), "repeated rows", all = FALSE)
-  out <- run_code(project_code_from_metadata(m, cs))
-  expect_equal(out[[res$name]], run_code(res$code)[[res$name]])
-  # A file without Type but without code is migrated column by column (no error).
-  plain <- old %>% select(-InitCode, -FeedCode) %>% slice(1)
-  path2 <- tempfile(fileext = ".csv"); write_csv(plain, path2)
-  expect_equal(read_metadata_file(path2, "plain.csv", cs)$Type, "Media")
+  expect_equal(nrow(m), 3)                                                    # repeated rows dropped (code ignored)
+  expect_equal(m$Metric, c("GRPs", "Spend", "Spend"))                         # ---Spend twin; cost root as main VOF
+  expect_equal(unique(m$Type), "Media"); expect_equal(unique(m$MaxPeriod), "2024-09-22")
+  expect_equal(unique(m$GeographyFilter), "Include|Exact"); expect_equal(m$VofComplement[3], "Brand")
+  expect_true(all(m[[METADATA_CODE_COL]] == ""))
+  expect_match(attr(m, "notes"), "InitCode / FeedCode ignored", all = FALSE)
+  comp <- component_from_metadata_row(m[1, ], cs)
+  expect_equal(cs_filter_resolve(comp$cs$Geography, cs_dim_values(ana, "Geography")), c("Atlanta", "McDonald's Land"))
 })

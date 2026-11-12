@@ -37,11 +37,17 @@ migrate_metadata <- function(df) {
   if ("MetricName" %in% names(df)) {
     df <- df %>% mutate(Metric = if_else(MetricName != "", MetricName, Metric)) %>% select(-MetricName)
   }
+  if (!"Metric" %in% names(df) && "AnalyticalVariableName" %in% names(df)) df$Metric <- "Activity"
   if (all(c("Metric", "AnalyticalVariableName") %in% names(df))) {
-    df <- df %>% mutate(Metric = map2_chr(Metric, AnalyticalVariableName, function(m, v) {
-      if (m != "Activity") return(m)
+    # Old "Activity" / "Spend" rows get their metric: a name ending in ---Spend
+    # is spend; otherwise the root decides (a spend VOF could be the main one,
+    # without ---Spend, when its root is a cost / spend variable).
+    names_col <- if ("MainModelVariableName" %in% names(df)) df$MainModelVariableName else rep("", nrow(df))
+    df <- df %>% mutate(Metric = pmap_chr(list(Metric, AnalyticalVariableName, names_col), function(m, v, nm) {
+      if (!m %in% c("", "Activity", "Spend")) return(m)
+      if (str_detect(nm, str_c(METRIC_SEP_REGEX, "Spend$"))) return("Spend")
       d <- detect_metric(v, character(0))
-      if (is.null(d)) m else if (d$Type == "Spend") "Spend" else d$Metric
+      if (is.null(d)) { if (m == "") "Activity" else m } else if (d$Type == "Spend") "Spend" else d$Metric
     }))
   }
   if ("FeedCode" %in% names(df)) {
@@ -114,46 +120,30 @@ add_missing_metadata <- function(history, old_rows) {
 
 read_metadata_file <- function(path, file_name, cs_dims = NULL) {
   raw <- read_table_file(path, file_name, as_text = TRUE)
-  from_code <- legacy_metadata_from_code(raw, cs_dims)
-  if (!is.null(from_code)) return(from_code)
+  if (!"Type" %in% names(raw)) return(legacy_metadata_from_columns(raw, cs_dims))
   normalize_metadata(raw, cs_dims)
 }
 
-# The oldest metadata files (no Type column; InitCode / FeedCode columns) wrote
-# the CS values as one comma-separated text and dates as d/m/Y, and their names
-# could differ from the VOF their code creates. Their code is what AWB runs,
-# so the media rows are rebuilt from it with the Restore parser (filters,
-# periods, labels, metric). Rows whose code cannot be read are migrated
-# column by column. Returns NULL when the file is not of that kind; otherwise
-# the metadata with attr(, "notes") for the analyst.
-legacy_metadata_from_code <- function(raw, cs_dims = NULL) {
-  if (!"FeedCode" %in% names(raw) || "Type" %in% names(raw) || nrow(raw) == 0) return(NULL)
-  raw <- raw %>% mutate(across(everything(), ~ replace_na(as.character(.x), "")))
-  # Rows repeated with the same code (a VOF saved twice) would add a root twice.
-  n_raw <- nrow(raw)
-  raw <- raw %>% distinct(FeedCode, .keep_all = TRUE)
-  n_dup <- n_raw - nrow(raw)
-  init <- if ("InitCode" %in% names(raw)) raw$InitCode else rep("", nrow(raw))
-  code <- str_trim(str_c(init, "\n", raw$FeedCode))
-  # VOF each row's code creates: Data[, 'X'] <- 0 / Data[..., 'X'] <- rowSums(...)
-  # (read from FeedCode first: it is the line that fills the VOF)
-  find_target <- function(x) str_match(x, "\\[[^\\]]*['\"]([^'\"]+)['\"]\\s*\\]\\s*(<-|=)")[, 2]
-  target <- coalesce(find_target(raw$FeedCode), find_target(init))
-  vofs <- tryCatch(parse_vof_code(str_c(code, collapse = "\n")), error = function(e) list())
-  dims <- cs_dims %||% intersect(MFF_DIMS, names(raw))
-  rebuilt <- if (length(vofs) > 0) parsed_vofs_to_metadata(vofs, dims) else NULL
-  ok <- !is.na(target) & target %in% names(vofs)
-  rest <- normalize_metadata(raw[!ok, , drop = FALSE], dims)
-  out <- normalize_metadata(bind_rows(rebuilt, rest), dims)
-  renamed <- unique(tibble(from = raw$MainModelVariableName[ok], to = target[ok]) %>% filter(from != to))
-  notes <- c(
-    sprintf("Old metadata format: %d VOFs rebuilt from their code (filters, periods and metric as AWB runs them).", n_distinct(target[ok])),
-    if (nrow(renamed) > 0) sprintf("%d names in the file differ from the VOF their code creates; the name of the code is used (review these VOFs in VOF QA): %s.",
-                                   nrow(renamed), str_c(sprintf("'%s' -> '%s'", renamed$from, renamed$to), collapse = "; ")),
-    if (n_dup > 0) sprintf("%d repeated rows (same code as another row) were ignored.", n_dup),
-    if (any(!ok)) sprintf("%d rows without readable code were migrated column by column.", sum(!ok))
+# The oldest metadata files (no Type column) only had media VOFs, with CS
+# filters that were always an inclusion (%in% c(...): the values are the list of
+# entities), dates as d/m/Y and no backcasting. Their InitCode / FeedCode were
+# not kept up to date, so they are ignored: everything comes from the other
+# columns (renames, metric and dates are handled by migrate_metadata()).
+# Repeated rows of a VOF are dropped. Returns the metadata with attr(, "notes").
+legacy_metadata_from_columns <- function(raw, cs_dims = NULL) {
+  if (nrow(raw) == 0) return(normalize_metadata(raw, cs_dims))
+  had_code <- any(c("InitCode", "FeedCode") %in% names(raw))
+  rows <- raw %>%
+    select(-any_of(c("InitCode", "FeedCode"))) %>%
+    mutate(across(everything(), ~ replace_na(as.character(.x), "")))
+  n_raw <- nrow(rows)
+  rows <- distinct(rows)
+  out <- normalize_metadata(rows, cs_dims)
+  attr(out, "notes") <- c(
+    sprintf("Old metadata format (no Type column): %d VOFs read from the metadata columns%s.",
+            n_distinct(out$MainModelVariableName), if (had_code) "; InitCode / FeedCode ignored" else ""),
+    if (n_raw > nrow(rows)) sprintf("%d repeated rows were ignored.", n_raw - nrow(rows))
   )
-  attr(out, "notes") <- notes
   out
 }
 
