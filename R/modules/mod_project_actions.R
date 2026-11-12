@@ -41,9 +41,21 @@ project_actions_server <- function(id, upload, history, media) {
     # --- Browser persistence (one entry per project) --------------------------
     browser_ready <- reactiveVal(FALSE)
 
+    # Another Analytical (another project): the app starts over with it. The
+    # metadata of the previous project is already saved in this browser under
+    # its own key, so nothing is lost; the new project's saved metadata loads.
+    current_key <- NULL
     observeEvent(upload$project_key(), {
-      browser_ready(FALSE)
-      session$sendCustomMessage("vofmaker-load", list(key = upload$project_key(), input = ns("browser_history")))
+      key <- upload$project_key()
+      browser_ready(FALSE)              # first: nothing is saved under the new key while resetting
+      if (!is.null(current_key) && !identical(key, current_key)) {
+        history$clear()
+        media$reset()
+        app_notify("New Analytical loaded: the app started over for this project. The metadata of the previous project stays saved in this browser.",
+                   type = "message", duration = 8)
+      }
+      current_key <<- key
+      session$sendCustomMessage("vofmaker-load", list(key = key, input = ns("browser_history")))
     })
 
     observeEvent(input$browser_history, {

@@ -1,5 +1,15 @@
 # VOF Maker — Changelog
 
+## Fix — Loading another Analytical (2026-11-12)
+- The app crashed when a second Analytical was loaded: the Dummies tab kept the KPI selected
+  and read it from the new data, where it did not exist. It now waits until a KPI of the new
+  Analytical is selected.
+- Loading the Analytical of another project starts the app over: the metadata of the previous
+  project is cleared from the session (it is already saved in the browser under its own project),
+  the Media builder and the pending dummies are reset, and the metadata saved in the browser for
+  the new project is loaded. Before, the previous project's metadata stayed in memory and could
+  be saved under the new project. Loading the same Analytical again changes nothing.
+
 ## Fix — Oldest metadata format (2026-11-12)
 - Uploading metadata without a `Type` column failed ("Can't recycle `true`..."): the migration
   assumed that column existed. Files without it only had media VOFs.

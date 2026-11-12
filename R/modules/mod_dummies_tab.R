@@ -149,7 +149,15 @@ dummies_tab_server <- function(id, upload, history) {
     })
 
     # --- Peak detection ------------------------------------------------------------
-    level_data <- reactive({ req(input$kpi, upload$data()); kpi_level_series(upload$data(), input$kpi, upload$cs_dims(), isTRUE(input$is_log)) })
+    # req: after loading another Analytical the KPI selected may not exist in it yet.
+    # Another Analytical: pending dummies, custom dates and entity results start over.
+    observeEvent(upload$project_key(), {
+      pending(list()); custom_calendar(NULL); entity_effects(NULL)
+    }, ignoreInit = TRUE)
+    level_data <- reactive({
+      req(input$kpi, upload$data(), input$kpi %in% names(upload$data()))
+      kpi_level_series(upload$data(), input$kpi, upload$cs_dims(), isTRUE(input$is_log))
+    })
     observe({
       ents <- sort(unique(level_data()$Entity))
       updateSelectizeInput(session, "level", choices = c("Total of all entities" = "__total__", ents),
