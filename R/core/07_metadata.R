@@ -45,7 +45,8 @@ migrate_metadata <- function(df) {
     }))
   }
   if ("FeedCode" %in% names(df)) {
-    is_media <- !"Type" %in% names(df) | df$Type %in% c("", METADATA_TYPES[["media"]])
+    # Files without a Type column only had media VOFs.
+    is_media <- if ("Type" %in% names(df)) df$Type %in% c("", METADATA_TYPES[["media"]]) else rep(TRUE, nrow(df))
     if (!METADATA_CODE_COL %in% names(df)) df[[METADATA_CODE_COL]] <- ""
     init <- if ("InitCode" %in% names(df)) df$InitCode else ""
     old_code <- str_trim(str_c(init, "\n", df$FeedCode))
@@ -111,7 +112,50 @@ add_missing_metadata <- function(history, old_rows) {
        n_skipped = n_distinct(old_rows$MainModelVariableName) - n_distinct(new_rows$MainModelVariableName))
 }
 
-read_metadata_file <- function(path, file_name) normalize_metadata(read_table_file(path, file_name, as_text = TRUE))
+read_metadata_file <- function(path, file_name, cs_dims = NULL) {
+  raw <- read_table_file(path, file_name, as_text = TRUE)
+  from_code <- legacy_metadata_from_code(raw, cs_dims)
+  if (!is.null(from_code)) return(from_code)
+  normalize_metadata(raw, cs_dims)
+}
+
+# The oldest metadata files (no Type column; InitCode / FeedCode columns) wrote
+# the CS values as one comma-separated text and dates as d/m/Y, and their names
+# could differ from the VOF their code creates. Their code is what AWB runs,
+# so the media rows are rebuilt from it with the Restore parser (filters,
+# periods, labels, metric). Rows whose code cannot be read are migrated
+# column by column. Returns NULL when the file is not of that kind; otherwise
+# the metadata with attr(, "notes") for the analyst.
+legacy_metadata_from_code <- function(raw, cs_dims = NULL) {
+  if (!"FeedCode" %in% names(raw) || "Type" %in% names(raw) || nrow(raw) == 0) return(NULL)
+  raw <- raw %>% mutate(across(everything(), ~ replace_na(as.character(.x), "")))
+  # Rows repeated with the same code (a VOF saved twice) would add a root twice.
+  n_raw <- nrow(raw)
+  raw <- raw %>% distinct(FeedCode, .keep_all = TRUE)
+  n_dup <- n_raw - nrow(raw)
+  init <- if ("InitCode" %in% names(raw)) raw$InitCode else rep("", nrow(raw))
+  code <- str_trim(str_c(init, "\n", raw$FeedCode))
+  # VOF each row's code creates: Data[, 'X'] <- 0 / Data[..., 'X'] <- rowSums(...)
+  # (read from FeedCode first: it is the line that fills the VOF)
+  find_target <- function(x) str_match(x, "\\[[^\\]]*['\"]([^'\"]+)['\"]\\s*\\]\\s*(<-|=)")[, 2]
+  target <- coalesce(find_target(raw$FeedCode), find_target(init))
+  vofs <- tryCatch(parse_vof_code(str_c(code, collapse = "\n")), error = function(e) list())
+  dims <- cs_dims %||% intersect(MFF_DIMS, names(raw))
+  rebuilt <- if (length(vofs) > 0) parsed_vofs_to_metadata(vofs, dims) else NULL
+  ok <- !is.na(target) & target %in% names(vofs)
+  rest <- normalize_metadata(raw[!ok, , drop = FALSE], dims)
+  out <- normalize_metadata(bind_rows(rebuilt, rest), dims)
+  renamed <- unique(tibble(from = raw$MainModelVariableName[ok], to = target[ok]) %>% filter(from != to))
+  notes <- c(
+    sprintf("Old metadata format: %d VOFs rebuilt from their code (filters, periods and metric as AWB runs them).", n_distinct(target[ok])),
+    if (nrow(renamed) > 0) sprintf("%d names in the file differ from the VOF their code creates; the name of the code is used (review these VOFs in VOF QA): %s.",
+                                   nrow(renamed), str_c(sprintf("'%s' -> '%s'", renamed$from, renamed$to), collapse = "; ")),
+    if (n_dup > 0) sprintf("%d repeated rows (same code as another row) were ignored.", n_dup),
+    if (any(!ok)) sprintf("%d rows without readable code were migrated column by column.", sum(!ok))
+  )
+  attr(out, "notes") <- notes
+  out
+}
 
 # ------------------------------------------------------------------------------
 # Purifier

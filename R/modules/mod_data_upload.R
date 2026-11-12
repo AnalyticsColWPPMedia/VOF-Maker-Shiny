@@ -49,8 +49,9 @@ data_upload_server <- function(id, history) {
     observeEvent(input$file_metadata, {
       f <- input$file_metadata
       tryCatch({
-        old <- read_metadata_file(f$datapath, f$name)
+        old <- read_metadata_file(f$datapath, f$name, cs_dims = tryCatch(cs_dims(), error = function(e) NULL))
         res <- history$add_missing(old)
+        notify_messages(attr(old, "notes"), type = "warning")
         app_notify(sprintf("Old metadata loaded: %d VOFs added to the history (%d already existed).",
                                  res$n_added, res$n_skipped),
                          type = "message", duration = 8)

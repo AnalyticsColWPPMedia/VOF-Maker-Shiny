@@ -1,5 +1,14 @@
 # VOF Maker — Changelog
 
+## Fix — Oldest metadata format (2026-11-12)
+- Uploading metadata without a `Type` column failed ("Can't recycle `true`..."): the migration
+  assumed that column existed. Files without it only had media VOFs.
+- Those oldest files (InitCode / FeedCode columns) are now rebuilt from their own code with the
+  Restore parser, since the code is what AWB runs: filters, periods, labels and metric come from
+  it. Rows repeated with the same code are ignored; when a row's name differs from the VOF its
+  code creates, the code's name is used and the app lists them (to review in VOF QA). Rows
+  without readable code are migrated column by column. The app shows these notes as a warning.
+
 ## Phase 3g, revision 2 — Dummy conflicts: block only identical dummies (2026-11-11)
 - Generation is blocked only when two dummies switch on in exactly the same periods and entities.
 - Any other overlap (event weeks in common, even every year, or a ramp / decay running into
