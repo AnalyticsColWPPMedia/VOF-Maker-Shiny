@@ -80,6 +80,11 @@ parse_dates_flexible <- function(x) {
   if (all(is.na(x))) return(as_date(x))
   if (all(str_detect(x[!is.na(x)], "^\\d{5}(\\.\\d+)?$"))) return(parse_dates_flexible(as.numeric(x)))
   x <- str_remove(x, "[ T]\\d{1,2}:\\d{2}(:\\d{2})?.*$")  # drop a time component
+  # Month and year only ("10/2022", "2022-10", "Oct 2022"): first day of the month.
+  # Checked first: a day parser would read "10/2022" as 20 October 2022.
+  vals <- x[!is.na(x)]
+  if (all(str_detect(vals, "^\\d{1,2}[/.-]\\d{4}$|^[A-Za-z]{3,9}[ ./-]?\\d{4}$"))) return(suppressWarnings(my(x, quiet = TRUE)))
+  if (all(str_detect(vals, "^\\d{4}[/.-]\\d{1,2}$|^\\d{4}[ ./-]?[A-Za-z]{3,9}$"))) return(suppressWarnings(ym(x, quiet = TRUE)))
 
   candidates <- map(DATE_PARSERS, function(f) {
     d <- suppressWarnings(f(x, quiet = TRUE))

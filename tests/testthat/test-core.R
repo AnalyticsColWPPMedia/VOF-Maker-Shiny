@@ -805,3 +805,38 @@ test_that("old metadata without Type is read from its columns (InitCode / FeedCo
   comp <- component_from_metadata_row(m[1, ], cs)
   expect_equal(cs_filter_resolve(comp$cs$Geography, cs_dim_values(ana, "Geography")), c("Atlanta", "McDonald's Land"))
 })
+
+test_that("dates: month and year only are read as the first day of the month", {
+  expect_equal(parse_dates_flexible(c(" 10/2022", "11/2022")), as.Date(c("2022-10-01", "2022-11-01")))
+  expect_equal(parse_dates_flexible(c("2022-10", "2022-11")), as.Date(c("2022-10-01", "2022-11-01")))
+  expect_equal(parse_dates_flexible(c("Oct 2022", "Nov 2022")), as.Date(c("2022-10-01", "2022-11-01")))
+  expect_equal(parse_dates_flexible(c("05/10/2022", "25/10/2022")), as.Date(c("2022-10-05", "2022-10-25")))
+})
+
+test_that("external: monthly data expanded to the weeks (replicate, divide, days)", {
+  per <- analytical_periods(ana)                                    # weekly, Wednesday weeks
+  months <- seq(floor_date(min(per), "month"), floor_date(max(per), "month"), by = "month")
+  ext <- tibble(Month = format(months, "%m/%Y"), Value = seq_along(months) * 10)
+  d <- diagnose_external(ext, "Month", "Value", ana)
+  expect_true(d$needs_expand); expect_equal(d$expand_labels$freq, "monthly")
+  expect_match(generate_external_vof("X", ext, "Month", "Value", ana)$errors, "Choose how to expand")
+
+  rep <- aggregate_external(ext, "Month", "Value", per, expand = "replicate")
+  expect_equal(nrow(rep), length(per))
+  in_m2 <- per[floor_date(per, "month") == months[2]]
+  expect_true(all(rep$Value[rep$Period %in% in_m2] == 20))
+
+  div <- aggregate_external(ext, "Month", "Value", per, expand = "divide")
+  expect_equal(sum(div$Value[div$Period %in% in_m2]), 20)            # the month total is kept
+  expect_equal(unique(div$Value[div$Period %in% in_m2]), 20 / length(in_m2))
+
+  days <- aggregate_external(ext, "Month", "Value", per, expand = "days")
+  p <- per[which(floor_date(per, "month") != floor_date(per + 6, "month"))[2]]   # a week across two months
+  m1 <- floor_date(p, "month"); m2 <- m1 %m+% months(1)
+  d1 <- as.numeric(m2 - p); v1 <- ext$Value[months == m1]; v2 <- ext$Value[months == m2]
+  expected <- v1 * d1 / days_in_month(m1) + v2 * (7 - d1) / days_in_month(m2)
+  expect_equal(days$Value[days$Period == p], unname(expected))
+  res <- generate_external_vof("Monthly X", ext, "Month", "Value", ana, expand = "divide")
+  expect_match(res$code, "# Frequency: monthly data, value divided equally among the periods of its month", fixed = TRUE)
+  expect_equal(sum(run_code(res$code)[["Monthly X"]][ana$Geography == ana$Geography[1]]), sum(div$Value))
+})

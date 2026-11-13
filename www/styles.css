@@ -319,3 +319,7 @@ body {
 
 /* Generated code: show "<-" as typed (no font ligatures) */
 textarea { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+
+/* External Sources: choice of how to expand coarser data */
+.vof-expand-choice { background: #f7f6f3; border: 1px solid #e3e1dc; border-left: 4px solid #2a78d6; border-radius: 6px; padding: 10px 14px 4px; margin-top: 6px; }
+.vof-expand-choice .control-label { font-weight: 600; }

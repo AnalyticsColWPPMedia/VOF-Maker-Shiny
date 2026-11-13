@@ -64,8 +64,10 @@ external_tab_server <- function(id, upload, history) {
       diagnose_external(ext_data(), input$period_col, input$value_col, upload$data(), entity_col(), target_dim())
     })
 
+    # Generate needs a valid diagnosis and, for coarser data, an expansion method.
     observe({
-      ok <- tryCatch(isTRUE(diagnosis()$ok), error = function(e) FALSE)
+      d <- tryCatch(diagnosis(), error = function(e) NULL)
+      ok <- isTRUE(d$ok) && (!isTRUE(d$needs_expand) || is_valid_value(input$expand_method))
       shinyjs::toggleState("generate_btn", condition = ok)
     })
 
@@ -77,15 +79,29 @@ external_tab_server <- function(id, upload, history) {
     })
 
     output$agg_ui <- renderUI({
-      req(diagnosis()$needs_agg)
-      radioButtons(ns("agg_method"), "Temporal Aggregation Method:", choices = c("Sum" = "sum", "Mean" = "mean"), inline = TRUE)
+      d <- diagnosis()
+      expand <- if (isTRUE(d$needs_expand)) {
+        l <- d$expand_labels
+        choices <- set_names(unname(EXPAND_METHODS), c(
+          sprintf("Replicate: every %s of the %s gets its value (levels, indexes, rates, prices)", str_remove(l$unit, "s$"), l$span),
+          sprintf("Divide equally: the value is divided by the number of %s that start in the %s (totals)", l$unit, l$span),
+          sprintf("Divide by days: each %s gets the share of the days it has in the %s; %s across two %ss take part of each (totals)",
+                  str_remove(l$unit, "s$"), l$span, l$unit, l$span)))
+        div(class = "vof-expand-choice",
+            radioButtons(ns("expand_method"), sprintf("How to expand %s data to the Analytical %s (required):", l$freq, l$unit),
+                         choices = choices, selected = isolate(input$expand_method) %||% character(0), width = "100%"))
+      }
+      agg <- if (isTRUE(d$needs_agg))
+        radioButtons(ns("agg_method"), "Temporal Aggregation Method:", choices = c("Sum" = "sum", "Mean" = "mean"), inline = TRUE)
+      tagList(expand, agg)
     })
 
     observeEvent(input$generate_btn, {
       res <- generate_external_vof(input$var_name, ext_data(), input$period_col, input$value_col, upload$data(),
                                    entity_col = entity_col(), target_dim = target_dim(),
                                    agg = input$agg_method %||% "sum", source = input$source,
-                                   notes = input$notes, why = input$why, cs_dims = upload$cs_dims())
+                                   notes = input$notes, why = input$why, cs_dims = upload$cs_dims(),
+                                   expand = input$expand_method)
       if (length(res$errors) > 0) { notify_messages(res$errors, type = "error"); return() }
       updateTextAreaInput(session, "code_area", value = res$code)
       history$upsert(res$metadata)

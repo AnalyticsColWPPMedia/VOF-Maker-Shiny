@@ -1,7 +1,9 @@
 # R/core/06_external_codegen.R
 # External Sources tab: aligns an external series to the Analytical periods and
 # generates the base-R code that maps it into Data.
-# (Frequency conversion options for coarser data are planned for Phase 3.)
+# Finer data (e.g. daily) is aggregated into the Analytical periods (sum / mean);
+# coarser data (e.g. monthly) is expanded to them (replicate / divide equally /
+# divide by days), as the analyst chooses.
 
 # Typical spacing (in days) of a vector of dates.
 median_step <- function(dates) {
@@ -39,12 +41,75 @@ map_to_periods <- function(ext_dates, ana_periods) {
 
 `%|NA|%` <- function(a, b) if (is.na(a)) b else a
 
+# ------------------------------------------------------------------------------
+# Coarser external data (monthly, quarterly, ...) -> Analytical periods
+# ------------------------------------------------------------------------------
+EXPAND_METHODS <- c(replicate = "replicate", divide = "divide", days = "days")
+
+is_coarser <- function(ext_step, ana_step) !is.na(ext_step) && !is.na(ana_step) && ext_step > ana_step * 1.5
+
+# Calendar span covered by each date of a coarse series: the whole month /
+# quarter / year when the spacing says so (whatever day of it the date is), or
+# [date, date + spacing) otherwise. Returns list(start, end, unit, step).
+external_intervals <- function(dates) {
+  step <- median_step(dates)
+  unit <- if (is.na(step)) NA_character_ else if (step >= 27 && step <= 32) "month"
+          else if (step >= 85 && step <= 95) "quarter" else if (step >= 360 && step <= 370) "year" else NA_character_
+  if (!is.na(unit)) {
+    start <- floor_date(dates, unit)
+    end <- start %m+% months(c(month = 1, quarter = 3, year = 12)[[unit]])
+  } else {
+    start <- dates; end <- dates + (step %|NA|% 1)
+  }
+  list(start = start, end = end, unit = unit, step = step)
+}
+
+frequency_label <- function(unit, step) {
+  if (!is.na(unit)) return(c(month = "monthly", quarter = "quarterly", year = "yearly")[[unit]])
+  sprintf("every ~%s days", round(step))
+}
+span_label <- function(unit) if (is.na(unit)) "span" else unit
+
+# Expands coarse rows (Date, Entity, Value) to the Analytical periods:
+# - replicate: every period starting in the span gets the value (levels,
+#   indexes, rates, prices);
+# - divide: the value is divided equally among the periods starting in the
+#   span (totals: the sum of the span is kept);
+# - days: each period gets the share of the value of the days it has in the
+#   span (totals; a week across two months takes part of each).
+# Periods are counted on the Analytical calendar extended over the whole span,
+# so a month only partly inside the Analytical is divided like any other.
+expand_external <- function(rows, ana_periods, method) {
+  ana_periods <- sort(unique(discard(ana_periods, is.na)))
+  step <- median_step(ana_periods) %|NA|% 7
+  iv <- external_intervals(rows$Date)
+  spans <- rows %>% mutate(start = iv$start, end = iv$end)
+  lo <- min(spans$start, ana_periods[1]); hi <- max(spans$end, max(ana_periods) + step)
+  back <- ceiling(as.numeric(ana_periods[1] - lo) / step)
+  grid <- seq(ana_periods[1] - back * step, hi, by = step)   # the Analytical calendar, extended
+  out <- spans %>% pmap(function(Date, Entity, Value, start, end, ...) {
+    if (method == "days") {
+      ov <- pmax(0, pmin(as.numeric(grid + step), as.numeric(end)) - pmax(as.numeric(grid), as.numeric(start)))
+      keep <- ov > 0
+      tibble(Period = grid[keep], Entity = Entity, Value = Value * ov[keep] / as.numeric(end - start))
+    } else {
+      inside <- grid[grid >= start & grid < end]
+      if (length(inside) == 0) return(NULL)
+      tibble(Period = inside, Entity = Entity, Value = if (method == "divide") Value / length(inside) else Value)
+    }
+  }) %>% list_rbind()
+  if (is.null(out) || nrow(out) == 0) return(tibble(Period = as.Date(character(0)), Entity = character(0), Value = numeric(0)))
+  out %>% filter(Period %in% ana_periods) %>%
+    group_by(Entity, Period) %>% summarise(Value = sum(Value), .groups = "drop")
+}
+
 # Diagnosis shown in the UI before generating code: list(ok, needs_agg,
 # messages = list of list(level, text), missing_entities).
 diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col = "", target_dim = "") {
   msgs <- list()
   add <- function(level, text) msgs[[length(msgs) + 1]] <<- list(level = level, text = text)
-  out <- list(ok = FALSE, needs_agg = FALSE, messages = NULL, missing_entities = character(0))
+  out <- list(ok = FALSE, needs_agg = FALSE, coarse = FALSE, needs_expand = FALSE, expand_labels = NULL,
+              messages = NULL, missing_entities = character(0))
 
   ext_dates <- parse_dates_flexible(df_ext[[period_col]])
   if (all(is.na(ext_dates))) {
@@ -62,24 +127,42 @@ diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col 
 
   ana_periods <- analytical_periods(ana_df)
   m <- map_to_periods(ext_dates, ana_periods)
+  out$coarse <- is_coarser(m$ext_step, m$ana_step)
+  if (out$coarse) {
+    # Coarser than the Analytical: each value is expanded to the periods of its span.
+    iv <- external_intervals(ext_dates[!is.na(ext_dates)])
+    freq <- frequency_label(iv$unit, iv$step)
+    unit_ana <- if (isTRUE(abs(m$ana_step - 7) < 0.5)) "weeks" else "periods"
+    out$needs_expand <- TRUE
+    out$expand_labels <- list(freq = freq, span = span_label(iv$unit), unit = unit_ana)
+    add("info", sprintf("External data is %s and the Analytical is %s (~%s days): choose below how to expand each value to the %s of its %s.",
+                        freq, if (unit_ana == "weeks") "weekly" else "finer", m$ana_step, unit_ana, span_label(iv$unit)))
+    last_p <- max(ana_periods) + m$ana_step
+    n_out <- sum(iv$end <= min(ana_periods) | iv$start >= last_p)
+    if (n_out > 0) add("warning", sprintf("%d %s values fall outside the Analytical date range and will be ignored.", n_out, freq))
+    covered <- map_lgl(ana_periods, function(p) any(iv$start < p + m$ana_step & iv$end > p))
+    if (any(!covered)) add("warning", sprintf("%d Analytical %s have no external data (%s to %s) and will get 0.",
+                                              sum(!covered), unit_ana, min(ana_periods[!covered]), max(ana_periods[!covered])))
+  }
   exact_pct <- round(100 * mean(discard(ext_dates, is.na) %in% ana_periods), 1)
-  add("info", sprintf("Date alignment: %s%% of external dates match an Analytical period exactly.", exact_pct))
-  if (m$mode == "contain") {
+  if (!out$coarse) add("info", sprintf("Date alignment: %s%% of external dates match an Analytical period exactly.", exact_pct))
+  if (out$coarse) {
+    # (messages above)
+  } else if (m$mode == "contain") {
     add("info", sprintf("External data is more granular (~%s days) than the Analytical (~%s days): each date is assigned to the period that contains it.",
                         m$ext_step, m$ana_step))
   } else if (exact_pct < 100) {
     add("warning", "Dates are not aligned with the Analytical periods: each date is assigned to the nearest period.")
   }
-  if (!is.na(m$ext_step) && m$ext_step > m$ana_step * 1.5)
-    add("warning", "External data is less granular than the Analytical (e.g. monthly vs weekly): only the nearest period of each date gets a value, the rest will be 0.")
   n_out <- sum(!is.na(ext_dates) & is.na(m$mapped))
-  if (n_out > 0) add("warning", sprintf("%d rows fall outside the Analytical date range and will be ignored.", n_out))
+  if (!out$coarse && n_out > 0) add("warning", sprintf("%d rows fall outside the Analytical date range and will be ignored.", n_out))
 
-  keys <- tibble(period = m$mapped,
+  keys <- tibble(period = if (out$coarse) external_intervals(ext_dates)$start else m$mapped,
                  entity = if (entity_col != "") str_trim(as.character(df_ext[[entity_col]])) else "") %>%
     filter(!is.na(period))
   out$needs_agg <- anyDuplicated(keys) > 0
-  if (out$needs_agg) add("warning", "Several external rows fall in the same period: choose how to aggregate them.")
+  if (out$needs_agg) add("warning", sprintf("Several external rows fall in the same %s: choose how to aggregate them.",
+                                            if (out$coarse) out$expand_labels$span else "period"))
 
   cs_ok <- TRUE
   if (entity_col != "") {
@@ -109,11 +192,25 @@ diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col 
   out
 }
 
-# Aligned + aggregated table (Period, [Entity], Value).
-aggregate_external <- function(df_ext, period_col, value_col, ana_periods, entity_col = "", agg = "sum") {
+# Aligned + aggregated table (Period, [Entity], Value). Coarser data needs an
+# `expand` method (EXPAND_METHODS); rows of the same span are aggregated first.
+aggregate_external <- function(df_ext, period_col, value_col, ana_periods, entity_col = "", agg = "sum", expand = NULL) {
   has_cs <- entity_col != ""
   fun <- if (identical(agg, "mean")) mean else sum
-  tibble(Period = map_to_periods(parse_dates_flexible(df_ext[[period_col]]), ana_periods)$mapped,
+  dates <- parse_dates_flexible(df_ext[[period_col]])
+  ana_step <- median_step(ana_periods) %|NA|% 7
+  if (is_coarser(median_step(dates), ana_step)) {
+    if (!is_valid_value(expand) || !expand %in% EXPAND_METHODS) stop("Choose how to expand the coarser external data.")
+    rows <- tibble(Date = dates,
+                   Entity = if (has_cs) str_trim(as.character(df_ext[[entity_col]])) else NA_character_,
+                   Value = suppressWarnings(as.numeric(as.character(df_ext[[value_col]])))) %>%
+      filter(!is.na(Date), !is.na(Value), !has_cs | (!is.na(Entity) & Entity != ""))
+    if (nrow(rows) == 0) return(tibble(Period = as.Date(character(0)), Value = numeric(0)))
+    rows <- rows %>% mutate(Date = external_intervals(Date)$start) %>%
+      group_by(Entity, Date) %>% summarise(Value = fun(Value), .groups = "drop")
+    return(expand_external(rows, ana_periods, expand) %>% select(Period, any_of(if (has_cs) "Entity"), Value))
+  }
+  tibble(Period = map_to_periods(dates, ana_periods)$mapped,
          Entity = if (has_cs) str_trim(as.character(df_ext[[entity_col]])) else NA_character_,
          Value  = suppressWarnings(as.numeric(as.character(df_ext[[value_col]])))) %>%
     filter(!is.na(Period), !is.na(Value), !has_cs | (!is.na(Entity) & Entity != "")) %>%
@@ -125,7 +222,7 @@ aggregate_external <- function(df_ext, period_col, value_col, ana_periods, entit
 one_line <- function(x) str_replace_all(convert_to_char(x), "[\r\n]+", " ")
 
 # Generated code (base R).
-build_external_code <- function(var_name, agg_df, target_dim = "", source = "", notes = "", why = "") {
+build_external_code <- function(var_name, agg_df, target_dim = "", source = "", notes = "", why = "", how = "") {
   has_cs <- target_dim != "" && "Entity" %in% names(agg_df)
   num <- if_else(is.na(agg_df$Value), "NA", as.character(signif(agg_df$Value, 12)))
   df_lines <- c(
@@ -136,35 +233,34 @@ build_external_code <- function(var_name, agg_df, target_dim = "", source = "", 
     "  stringsAsFactors = FALSE",
     ")"
   )
-  map_lines <- if (has_cs) c(
-    "# 2. Map values with composite keys (Period + entity)",
-    sprintf("key_data <- paste(Data$%s, Data$%s, sep = '|')", PERIOD_COL, target_dim),
-    "key_ext <- paste(tmp_ext$Period, tmp_ext$Entity, sep = '|')",
-    sprintf("%s <- tmp_ext$Value[match(key_data, key_ext)]", r_col(var_name)),
-    "rm(key_data, key_ext)"
-  ) else c(
-    "# 2. Map values by Period",
-    sprintf("%s <- tmp_ext$Value[match(Data$%s, tmp_ext$Period)]", r_col(var_name), PERIOD_COL)
+  # Same shape as the media VOFs: start at 0, fill the periods (and entities)
+  # that have external data, remove the temporary table. Rows without a match
+  # keep their 0 (a plain match() would write NA on them).
+  key <- if (has_cs) sprintf("paste(Data$%s, Data$%s, sep = '|')", PERIOD_COL, target_dim) else sprintf("Data$%s", PERIOD_COL)
+  key_ext <- if (has_cs) "paste(tmp_ext$Period, tmp_ext$Entity, sep = '|')" else "tmp_ext$Period"
+  map_lines <- c(
+    if (has_cs) "# 2. Start at 0 and fill with the external data (key: Period + entity)" else "# 2. Start at 0 and fill with the external data (key: Period)",
+    sprintf("%s <- 0", r_col(var_name)),
+    sprintf("idx <- match(%s, %s)", key, key_ext),
+    sprintf("%s[!is.na(idx)] <- tmp_ext$Value[idx[!is.na(idx)]]", r_col(var_name)),
+    "rm(tmp_ext, idx)"
   )
   c(sprintf("#### External Variable: %s ####", one_line(var_name)),
     sprintf("# Source: %s", one_line(source)),
     sprintf("# Notes: %s", one_line(notes)),
     sprintf("# Why: %s", one_line(why)),
+    if (nzchar(how)) sprintf("# Frequency: %s", one_line(how)),
     "",
     "# 1. External data (aligned to the Analytical periods)",
     df_lines,
     "",
     map_lines,
-    "",
-    "# 3. Periods/entities without external data get 0",
-    sprintf("%s[is.na(%s)] <- 0", r_col(var_name), r_col(var_name)),
-    "rm(tmp_ext)",
     "") %>% str_c(collapse = "\n")
 }
 
 generate_external_vof <- function(var_name, df_ext, period_col, value_col, ana_df,
                                   entity_col = "", target_dim = "", agg = "sum",
-                                  source = "", notes = "", why = "", cs_dims = character(0)) {
+                                  source = "", notes = "", why = "", cs_dims = character(0), expand = NULL) {
   var_name <- str_squish(convert_to_char(var_name))   # no extra spaces in VOF names
   errors <- c(if (var_name == "") "Variable Name is empty.",
               if (!is_valid_value(period_col) || !is_valid_value(value_col)) "Select the Period and Value columns.")
@@ -173,10 +269,21 @@ generate_external_vof <- function(var_name, df_ext, period_col, value_col, ana_d
   warnings <- if (var_name %in% names(ana_df))
     sprintf("'%s' already exists in the Analytical; the VOF will overwrite it.", var_name) else character(0)
 
-  agg_df <- aggregate_external(df_ext, period_col, value_col, analytical_periods(ana_df), entity_col, agg)
+  ana_periods <- analytical_periods(ana_df)
+  agg_df <- tryCatch(aggregate_external(df_ext, period_col, value_col, ana_periods, entity_col, agg, expand),
+                     error = function(e) conditionMessage(e))
+  if (is.character(agg_df)) return(list(errors = agg_df))
   if (nrow(agg_df) == 0) return(list(errors = "No external rows could be aligned to the Analytical periods."))
 
-  code <- build_external_code(var_name, agg_df, if (entity_col != "") target_dim else "", source, notes, why)
+  dates <- parse_dates_flexible(df_ext[[period_col]])
+  how <- if (is_coarser(median_step(dates), median_step(ana_periods) %|NA|% 7)) {
+    iv <- external_intervals(dates[!is.na(dates)])
+    sprintf("%s data, %s", frequency_label(iv$unit, iv$step),
+            c(replicate = str_c("value replicated in every period of its ", span_label(iv$unit)),
+              divide = str_c("value divided equally among the periods of its ", span_label(iv$unit)),
+              days = str_c("value divided by the days of each period in its ", span_label(iv$unit)))[[expand]])
+  } else ""
+  code <- build_external_code(var_name, agg_df, if (entity_col != "") target_dim else "", source, notes, why, how)
   meta <- tibble(Type = METADATA_TYPES[["external"]], MainModelVariableName = var_name,
                  AnalyticalVariableName = "", Metric = "External", !!METADATA_CODE_COL := code)
   for (d in cs_dims) meta[[d]] <- ""

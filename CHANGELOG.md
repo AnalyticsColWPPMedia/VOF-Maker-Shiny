@@ -1,5 +1,25 @@
 # VOF Maker — Changelog
 
+## External Sources — code style (2026-11-13)
+- The generated code has the same shape as the media VOFs: the variable starts at 0, the
+  periods (and entities) with external data are filled with `match()`, and the temporary table
+  is removed. Rows without external data keep their 0.
+
+## External Sources — coarser data expanded to the Analytical periods (2026-11-13)
+- Monthly (or quarterly, yearly, ...) data against a weekly Analytical: the app no longer puts
+  each value in the nearest week only. It asks how to expand every value (required before
+  generating):
+  - Replicate: every week of the month gets its value (levels, indexes, rates, prices);
+  - Divide equally: the value is divided by the number of weeks that start in the month (totals);
+  - Divide by days: each week gets the share of the days it has in the month; weeks across two
+    months take part of each (totals).
+  Weeks belong to a month by their start date (any week-start day). Months only partly inside
+  the Analytical are divided like any other. The generated code says the method in a
+  `# Frequency:` comment. Diagnosis: values outside the Analytical range and Analytical weeks
+  without external data.
+- Dates with only month and year (`10/2022`, `2022-10`, `Oct 2022`) are read as the first day of
+  the month (before, `10/2022` was read as 20 October 2022).
+
 ## Fix — Loading another Analytical (2026-11-12)
 - The app crashed when a second Analytical was loaded: the Dummies tab kept the KPI selected
   and read it from the new data, where it did not exist. It now waits until a KPI of the new
