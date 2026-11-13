@@ -840,3 +840,29 @@ test_that("external: monthly data expanded to the weeks (replicate, divide, days
   expect_match(res$code, "# Frequency: monthly data, value divided equally among the periods of its month", fixed = TRUE)
   expect_equal(sum(run_code(res$code)[["Monthly X"]][ana$Geography == ana$Geography[1]]), sum(div$Value))
 })
+
+test_that("external: diagnosis lists the weeks / entities and the preview shows the first and last months", {
+  per <- analytical_periods(ana)
+  expect_equal(period_ranges(per[c(1:3, 10)], 7, "weeks"), c(sprintf("%s to %s (3 weeks)", per[1], per[3]), format(per[10])))
+  # Monthly data that starts 3 months after the Analytical and has one month before it.
+  months <- seq(floor_date(min(per), "month") %m+% months(3), floor_date(max(per), "month"), by = "month")
+  ext <- tibble(Month = format(c(floor_date(min(per), "month") %m-% months(2), months), "%m/%Y"), Value = 1)
+  d <- diagnose_external(ext, "Month", "Value", ana)
+  out_msg <- keep(d$messages, ~ str_detect(.x$text, "outside"))[[1]]
+  expect_equal(out_msg$items, format(floor_date(min(per), "month") %m-% months(2), "%Y-%m"))
+  gap_msg <- keep(d$messages, ~ str_detect(.x$text, "no external data"))[[1]]
+  expect_length(gap_msg$items, 1); expect_match(gap_msg$items, str_c("^", per[1], " to "))
+
+  # Entities without data are all listed.
+  ext_cs <- tibble(Date = rep(per, 2), Geo = rep(c("Atlanta", "Boston - North"), each = length(per)), Value = 5)
+  dc <- diagnose_external(ext_cs, "Date", "Value", ana, "Geo", "Geography")
+  miss <- keep(dc$messages, ~ str_detect(.x$text, "no external data and will get 0"))
+  expect_setequal(miss[[length(miss)]]$items, setdiff(cs_dim_values(ana, "Geography"), c("Atlanta", "Boston - North")))
+
+  agg <- aggregate_external(ext, "Month", "Value", per, expand = "replicate")
+  pv <- external_preview(agg, per)
+  expect_setequal(unique(pv$Part), c("First 3 months", "Last 3 months"))
+  expect_true(all(pv$Value[pv$Period < floor_date(min(per), "month") %m+% months(3)] == 0))   # no data yet -> 0
+  expect_true(all(pv$Value[pv$Part == "Last 3 months"] == 1))
+  expect_lt(nrow(pv), length(per))
+})

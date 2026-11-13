@@ -103,11 +103,22 @@ expand_external <- function(rows, ana_periods, method) {
     group_by(Entity, Period) %>% summarise(Value = sum(Value), .groups = "drop")
 }
 
+# Consecutive periods as readable ranges: "2023-01-02 to 2023-03-27 (13 weeks)".
+period_ranges <- function(dates, step, unit = "periods") {
+  dates <- sort(unique(discard(as.Date(dates), is.na)))
+  if (length(dates) == 0) return(character(0))
+  run <- cumsum(c(TRUE, diff(as.numeric(dates)) > step * 1.5))
+  map_chr(split(dates, run), function(d) {
+    if (length(d) == 1) format(d) else sprintf("%s to %s (%d %s)", min(d), max(d), length(d), unit)
+  }) %>% unname()
+}
+
 # Diagnosis shown in the UI before generating code: list(ok, needs_agg,
-# messages = list of list(level, text), missing_entities).
+# messages = list of list(level, text, items), missing_entities). `items`
+# lists what the message is about (weeks, months, entities).
 diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col = "", target_dim = "") {
   msgs <- list()
-  add <- function(level, text) msgs[[length(msgs) + 1]] <<- list(level = level, text = text)
+  add <- function(level, text, items = NULL) msgs[[length(msgs) + 1]] <<- list(level = level, text = text, items = items)
   out <- list(ok = FALSE, needs_agg = FALSE, coarse = FALSE, needs_expand = FALSE, expand_labels = NULL,
               messages = NULL, missing_entities = character(0))
 
@@ -138,11 +149,13 @@ diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col 
     add("info", sprintf("External data is %s and the Analytical is %s (~%s days): choose below how to expand each value to the %s of its %s.",
                         freq, if (unit_ana == "weeks") "weekly" else "finer", m$ana_step, unit_ana, span_label(iv$unit)))
     last_p <- max(ana_periods) + m$ana_step
-    n_out <- sum(iv$end <= min(ana_periods) | iv$start >= last_p)
-    if (n_out > 0) add("warning", sprintf("%d %s values fall outside the Analytical date range and will be ignored.", n_out, freq))
+    out_rows <- iv$end <= min(ana_periods) | iv$start >= last_p
+    span_fmt <- function(d) if (identical(iv$unit, "month")) format(d, "%Y-%m") else format(d)
+    if (any(out_rows)) add("warning", sprintf("%d %s values fall outside the Analytical date range and will be ignored:", sum(out_rows), freq),
+                           items = span_fmt(sort(unique(iv$start[out_rows]))))
     covered <- map_lgl(ana_periods, function(p) any(iv$start < p + m$ana_step & iv$end > p))
-    if (any(!covered)) add("warning", sprintf("%d Analytical %s have no external data (%s to %s) and will get 0.",
-                                              sum(!covered), unit_ana, min(ana_periods[!covered]), max(ana_periods[!covered])))
+    if (any(!covered)) add("warning", sprintf("%d Analytical %s have no external data and will get 0:", sum(!covered), unit_ana),
+                           items = period_ranges(ana_periods[!covered], m$ana_step, unit_ana))
   }
   exact_pct <- round(100 * mean(discard(ext_dates, is.na) %in% ana_periods), 1)
   if (!out$coarse) add("info", sprintf("Date alignment: %s%% of external dates match an Analytical period exactly.", exact_pct))
@@ -154,8 +167,16 @@ diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col 
   } else if (exact_pct < 100) {
     add("warning", "Dates are not aligned with the Analytical periods: each date is assigned to the nearest period.")
   }
-  n_out <- sum(!is.na(ext_dates) & is.na(m$mapped))
-  if (!out$coarse && n_out > 0) add("warning", sprintf("%d rows fall outside the Analytical date range and will be ignored.", n_out))
+  outside <- !is.na(ext_dates) & is.na(m$mapped)
+  if (!out$coarse && any(outside))
+    add("warning", sprintf("%d rows fall outside the Analytical date range and will be ignored:", sum(outside)),
+        items = period_ranges(ext_dates[outside], m$ext_step %|NA|% m$ana_step, "dates"))
+  if (!out$coarse) {
+    no_data <- setdiff(as.character(ana_periods), as.character(m$mapped[!is.na(m$mapped)]))
+    if (length(no_data) > 0)
+      add("warning", sprintf("%d Analytical periods have no external data and will get 0:", length(no_data)),
+          items = period_ranges(as.Date(no_data), m$ana_step, "periods"))
+  }
 
   keys <- tibble(period = if (out$coarse) external_intervals(ext_dates)$start else m$mapped,
                  entity = if (entity_col != "") str_trim(as.character(df_ext[[entity_col]])) else "") %>%
@@ -182,8 +203,8 @@ diagnose_external <- function(df_ext, period_col, value_col, ana_df, entity_col 
         add("success", "Cross-Sectional entities mapped correctly.")
         no_data <- setdiff(ana_vals, ext_vals)
         if (length(no_data) > 0)
-          add("warning", sprintf("%d %s values have no external data and will get 0: %s",
-                                 length(no_data), target_dim, str_c(head(no_data, 10), collapse = ", ")))
+          add("warning", sprintf("%d %s values have no external data and will get 0:", length(no_data), target_dim),
+              items = sort(no_data))
       }
     }
   }
@@ -288,4 +309,26 @@ generate_external_vof <- function(var_name, df_ext, period_col, value_col, ana_d
                  AnalyticalVariableName = "", Metric = "External", !!METADATA_CODE_COL := code)
   for (d in cs_dims) meta[[d]] <- ""
   list(code = code, metadata = meta, warnings = warnings, errors = character(0))
+}
+
+# ------------------------------------------------------------------------------
+# Preview: the new variable as it will be in the Analytical
+# ------------------------------------------------------------------------------
+# Every Analytical period (0 where there is no external data), for the whole
+# Analytical (no entity) or for one entity. Only the first and last `months`
+# months are kept. Returns tibble(Part, Period, Value).
+external_preview <- function(agg_df, ana_periods, entity = NULL, months = 3) {
+  ana_periods <- sort(unique(discard(ana_periods, is.na)))
+  rows <- if (!is.null(entity) && "Entity" %in% names(agg_df)) agg_df %>% filter(Entity == entity) else agg_df
+  grid <- tibble(Period = ana_periods) %>%
+    left_join(rows %>% group_by(Period) %>% summarise(Value = sum(Value), .groups = "drop"), by = "Period") %>%
+    mutate(Value = replace_na(Value, 0))
+  first_end <- ana_periods[1] %m+% months(months)
+  last_start <- max(ana_periods) %m-% months(months)
+  grid %>%
+    mutate(Part = case_when(Period < first_end ~ sprintf("First %d months", months),
+                            Period > last_start ~ sprintf("Last %d months", months),
+                            TRUE ~ NA_character_)) %>%
+    filter(!is.na(Part)) %>%
+    select(Part, Period, Value)
 }

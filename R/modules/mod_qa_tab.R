@@ -88,10 +88,14 @@ qa_tab_server <- function(id, upload, history) {
     })
 
     # Stacked areas only make sense when the VOF sums several variables.
+    # The Y axis from 0 can be switched off to see series that move in a narrow
+    # band (e.g. an index between 90 and 100).
     output$view_ui <- renderUI({
-      if (!kind()$sum) return(NULL)
-      shinyWidgets::radioGroupButtons(ns("view"), "Chart", choices = c("Stacked areas" = "stack", "Lines" = "lines"),
-                                      selected = isolate(input$view) %||% "stack", size = "sm")
+      tagList(
+        if (kind()$sum)
+          shinyWidgets::radioGroupButtons(ns("view"), "Chart", choices = c("Stacked areas" = "stack", "Lines" = "lines"),
+                                          selected = isolate(input$view) %||% "stack", size = "sm"),
+        checkboxInput(ns("y_zero"), "Y axis from 0", value = isolate(input$y_zero) %||% TRUE))
     })
 
     # --- Header: type of VOF, status of each twin, CS filter notice -----------------
@@ -130,6 +134,12 @@ qa_tab_server <- function(id, upload, history) {
       colors <- set_names(c(QA_COLORS$roots, QA_COLORS$other)[seq_along(roots)], roots)
       if ("Other roots" %in% roots) colors[["Other roots"]] <- QA_COLORS$other
 
+      # A KPI in log and its original variable have different scales: the roots
+      # go to their own chart below.
+      vof_type <- qa()$blocks$type[qa()$blocks$name == vof][1]
+      split_roots <- identical(vof_type, METADATA_TYPES[["kpi_log"]]) && length(roots) > 0
+      y_axis <- list(title = "", gridcolor = "#ecebe7", rangemode = if (isFALSE(input$y_zero)) "normal" else "tozero")
+      p_roots <- plotly::plot_ly()
       p <- plotly::plot_ly()
       for (r in roots) {
         d <- s %>% filter(kind == "Root", series == r) %>% arrange(Period)
@@ -137,6 +147,10 @@ qa_tab_server <- function(id, upload, history) {
           p <- plotly::add_trace(p, data = d, x = ~Period, y = ~value, name = r, type = "scatter", mode = "lines",
                                  stackgroup = "roots", fillcolor = colors[[r]], line = list(color = "#ffffff", width = 1),
                                  hovertemplate = str_c("%{y:,.2f}<extra>", r, "</extra>"))
+        } else if (split_roots) {
+          p_roots <- plotly::add_lines(p_roots, data = d, x = ~Period, y = ~value, name = str_c(r, " (original)"),
+                                       line = list(color = colors[[r]], width = 1.5),
+                                       hovertemplate = str_c("%{y:,.2f}<extra>", r, "</extra>"))
         } else {
           p <- plotly::add_lines(p, data = d, x = ~Period, y = ~value, name = r, line = list(color = colors[[r]], width = 1.5),
                                  hovertemplate = str_c("%{y:,.2f}<extra>", r, "</extra>"))
@@ -159,10 +173,21 @@ qa_tab_server <- function(id, upload, history) {
                                                          text = str_c(if (cuts$edge[i] == "start") "starts " else "ends ", cuts$date[i]),
                                                          font = list(size = 10, color = "#52514e"), yanchor = "bottom"))
       scope <- if (length(input$entities) == 0) "total of all entities" else str_c("total of ", length(input$entities), " selected entities")
+      if (split_roots) {
+        p <- plotly::subplot(p %>% plotly::layout(yaxis = y_axis), p_roots %>% plotly::layout(yaxis = y_axis),
+                             nrows = 2, shareX = TRUE, heights = c(0.55, 0.45), titleY = FALSE, margin = 0.06)
+        return(p %>% plotly::layout(
+          title = list(text = str_c(metric, "<br><sup>", vof, " - ", scope, " (top: VOF in log; bottom: original variable)</sup>"),
+                       x = 0, font = list(size = 15)),
+          hovermode = "x unified", legend = list(orientation = "h", y = -0.12),
+          xaxis2 = list(title = "", gridcolor = "#ecebe7"), yaxis = y_axis, yaxis2 = y_axis,
+          shapes = shapes, annotations = notes, margin = list(t = 80)) %>%
+          plotly::config(displaylogo = FALSE))
+      }
       p %>% plotly::layout(
         title = list(text = str_c(metric, "<br><sup>", vof, " - ", scope, "</sup>"), x = 0, font = list(size = 15)),
         hovermode = "x unified", legend = list(orientation = "h", y = -0.18),
-        xaxis = list(title = "", gridcolor = "#ecebe7"), yaxis = list(title = "", gridcolor = "#ecebe7", rangemode = "tozero"),
+        xaxis = list(title = "", gridcolor = "#ecebe7"), yaxis = y_axis,
         shapes = shapes, annotations = notes, margin = list(t = 80)) %>%
         plotly::config(displaylogo = FALSE)
     }
@@ -170,7 +195,8 @@ qa_tab_server <- function(id, upload, history) {
     output$charts_ui <- renderUI({
       b <- group_blocks() %>% head(QA_MAX_GROUP); req(nrow(b) > 0)
       div(class = "section-card",
-          map(seq_len(nrow(b)), function(i) tagList(if (i > 1) tags$hr(), plotly::plotlyOutput(ns(str_c("chart_", i)), height = "420px"))))
+          map(seq_len(nrow(b)), function(i) tagList(if (i > 1) tags$hr(), plotly::plotlyOutput(ns(str_c("chart_", i)),
+                                                                                  height = if (identical(b$type[i], METADATA_TYPES[["kpi_log"]])) "620px" else "420px"))))
     })
     # A group holds a VOF and its twin (up to QA_MAX_GROUP for older projects).
     walk(seq_len(QA_MAX_GROUP), function(j) {

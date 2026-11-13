@@ -1,5 +1,17 @@
 # VOF Maker — Changelog
 
+## External Sources and QA charts (2026-11-13)
+- External diagnosis lists what each message is about: the external months / dates outside the
+  Analytical range, the Analytical weeks without external data (as ranges, e.g.
+  "2023-01-02 to 2023-03-27 (13 weeks)") and every entity without data.
+- New "Preview in the Analytical" card: the new variable as it will be in the Analytical (0 where
+  there is no data), first and last 3 months in a fixed-height table. Without entities: Period and
+  the variable. With entities: a selector with the entities that have data; the ones that get 0 are
+  listed.
+- VOF QA: "Y axis from 0" checkbox (on by default) to zoom into series that move in a narrow band.
+- VOF QA: a KPI in log is drawn in two charts sharing the dates: the VOF in log on top and the
+  original variable below (different scales).
+
 ## External Sources — code style (2026-11-13)
 - The generated code has the same shape as the media VOFs: the variable starts at 0, the
   periods (and entities) with external data are filled with `match()`, and the temporary table
